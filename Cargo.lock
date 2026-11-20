@@ -2080,7 +2080,7 @@ dependencies = [
 
 [[package]]
 name = "boomground"
-version = "1.7.0"
+version = "1.7.1"
 dependencies = [
  "bevy",
  "chrono",
@@ -2088,6 +2088,7 @@ dependencies = [
  "crossterm",
  "discord-rich-presence",
  "nnnoiseless",
+ "wgpu",
  "winit",
  "winresource",
 ]

@@ -412,7 +412,12 @@ pub fn receive(
                 d.game.seed = seed;
                 d.game.mode = lobby.mode;
                 d.game.reset_inventory();
-                // Génération de la ville sans bloquer l'affichage.
+                // Génération de la ville sans bloquer l'affichage. On vide
+                // d'abord l'ancienne carte : sinon l'ancienne et la nouvelle
+                // coexistaient pendant toute la génération (pic de RAM
+               // multiplié par deux, abort silencieux sur les petites
+                // machines). L'écran de chargement couvre le trou.
+                d.world.clear();
                 let (tx, rx) = std::sync::mpsc::channel();
                 let _ = std::thread::Builder::new().name("boomground-ville".into()).spawn(move || {
                     let mut w = crate::world::VoxelWorld::with_blocks(map_blocks as i32);
@@ -594,6 +599,8 @@ pub fn receive(
                 weather.rain = 0.0;
                 d.game.seed = seed;
                 let blocks = d.world.blocks;
+                // Vider l'ancienne carte pendant la génération (voir Welcome).
+                d.world.clear();
                 let (tx, rx) = std::sync::mpsc::channel();
                 let _ = std::thread::Builder::new().name("boomground-ville".into()).spawn(move || {
                     let mut w = crate::world::VoxelWorld::with_blocks(blocks);

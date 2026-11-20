@@ -881,9 +881,53 @@ impl VoxelWorld {
         self.clear();
         self.seed = seed;
         self.spawn = crate::map::generate(self, seed);
+        // Filet de sécurité : quoi qu'ait généré la carte (caisses d'entrepôt
+        // posées sans vérification, pilier mal placé…), aucune porte ne
+        // doit être bloquée dès l'arrivée.
+        self.fix_doors();
         self.total = self.alive;
         self.generation = self.generation.wrapping_add(1);
         self.full_rebuild = true;
+    }
+
+    /// Garantit qu'aucune porte n'est bloquée à la génération.
+    ///
+    /// Une porte dont la zone de rangement est occupée ne peut pas s'ouvrir
+    /// (`toggle_door` refuse) : soit on déblaye — si ce ne sont que des
+    /// éléments (mobilier, caisses, lampes) —, soit on retire la porte et
+    /// son dormant : l'ouverture devient un passage libre plutôt qu'une
+    /// porte décorative immobile.
+    pub fn fix_doors(&mut self) {
+        let mut remove: Vec<usize> = Vec::new();
+        let mut clear: Vec<IVec3> = Vec::new();
+        for (i, door) in self.doors.iter().enumerate() {
+            let blocked: Vec<IVec3> = door
+                .open
+                .iter()
+                .copied()
+                .filter(|&t| self.is_solid(t))
+                .collect();
+            if blocked.is_empty() {
+                continue;
+            }
+            if blocked.iter().all(|&t| is_prop(self.material(t))) {
+                // De simples éléments gênent : on les enlève.
+                clear.extend(blocked);
+            } else {
+                remove.push(i);
+            }
+        }
+        for t in clear {
+            self.set(t, false, 0);
+        }
+        // À l'envers : les indices restent valides pendant la suppression.
+        for i in remove.into_iter().rev() {
+            let cells = self.doors[i].closed.clone();
+            for c in cells {
+                self.set(c, false, 0);
+            }
+            self.doors.remove(i);
+        }
     }
 }
 
@@ -1215,8 +1259,8 @@ pub fn setup_voxel_assets(
         tracer_cube: meshes.add(Cuboid::new(1.0, 1.0, 1.0)),
         tracer_material: materials.add(StandardMaterial {
             base_color: Color::srgb(1.0, 0.85, 0.45),
+            // `unlit` aurait ignoré l'emissive (voir lamp_material).
             emissive: Color::srgb(4.0, 3.0, 1.2).into(),
-            unlit: true,
             ..default()
         }),
         voxel_material: materials.add(StandardMaterial {
@@ -1229,13 +1273,26 @@ pub fn setup_voxel_assets(
         }),
         lamp_material: materials.add(StandardMaterial {
             base_color: Color::WHITE,
+            // PAS de `unlit` : avec unlit, le shader ne rend que `base_color`
+            // et jette `emissive` (bevy_pbr pbr.wesl : la branche unlit ne
+            // passe pas par `apply_pbr_lighting`, où l'emissive est ajoutée).
+            // La lampe était donc d'un jaune pâle plat qui se fondait dans le
+            // ciel — « faces transparentes » à distance. Lit + emissive donne
+            // une vraie surface lumineuse (et un halo quand le bloom est
+            // activé).
             emissive: LinearRgba::rgb(2.4, 2.0, 1.2),
-            unlit: true,
             ..default()
         }),
         glass_material: materials.add(StandardMaterial {
-            base_color: Color::srgba(1.0, 1.0, 1.0, 0.45),
-            alpha_mode: AlphaMode::Blend,
+            // AlphaToCoverage et non Blend : les faces d'un même maillage
+            // (toutes les vitres d'une voiture, d'une façade…) sont dessinées
+            // dans l'ordre du tampon d'indices. En Blend, sans écriture de
+            // profondeur et sans tri intra-maillage, la face arrière et la
+            // face avant se mélangent dans un ordre arbitraire — des vitres
+            // qui « disparaissent » selon l'angle. A2C écrit la profondeur et
+            // n'exige aucun tri ; alpha ≈ 0.6 = ~60 % des samples couverts.
+            base_color: Color::srgba(1.0, 1.0, 1.0, 0.6),
+            alpha_mode: AlphaMode::AlphaToCoverage,
             perceptual_roughness: 0.08,
             reflectance: 0.6,
             ..default()
@@ -1412,6 +1469,38 @@ mod tests {
         w.set(closed[1], false, 0);
         assert!(w.toggle_door(0).is_some());
         assert!(closed.iter().all(|&c| w.is_solid(c)));
+    }
+
+    /// Aucune porte ne doit être bloquée dès la génération : sur une vraie
+    /// ville, chaque porte s'ouvre au premier essai (avant, un pilier ou un
+    /// meuble poussé sur la zone où la porte se rangeait la rendait
+    /// définitivement immobile).
+    #[test]
+    fn no_generated_door_is_blocked() {
+        for seed in [1u64, 1234, 424242, 929519, 777_777] {
+            let mut w = VoxelWorld::with_blocks(6);
+            w.rebuild(seed);
+            let doors = w.doors.len();
+            assert!(doors > 10, "ville sans assez de portes : {doors}");
+            for i in 0..doors {
+                let (before, after) = {
+                    let d = &w.doors[i];
+                    (d.closed.clone(), d.open.clone())
+                };
+                let present = before.iter().filter(|&&c| w.is_solid(c)).count();
+                if present * 4 < w.doors[i].total * 3 {
+                    continue; // déjà détruite par la génération : toléré.
+                }
+                assert!(
+                    w.toggle_door(i).is_some(),
+                    "porte {i} bloquée (seed {seed}) : {present}/{} voxels présents",
+                    w.doors[i].total
+                );
+                // Et elle se referme.
+                assert!(w.toggle_door(i).is_some(), "porte {i} ne se referme pas (seed {seed})");
+                let _ = (before, after);
+            }
+        }
     }
 
     #[test]

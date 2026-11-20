@@ -173,10 +173,22 @@ pub fn build_pass(world: &impl Cells, chunk_corner: IVec3, pass: u8) -> Mesh {
     let min = chunk_corner.max(IVec3::ZERO);
     let mut max = (chunk_corner + IVec3::splat(CHUNK)).min(world.dims());
 
-    // Passe vitres : rien à faire si le morceau n'en contient aucune.
+    // Passe vitres/lampes : rien à faire si le morceau — **ou la première
+    // couche du voisin côté +X/+Y/+Z** — n'en contient aucune. Sans cette
+    // couche, la face -X/-Y/-Z d'un voxel de passe posé pile sur la
+    // frontière était perdue : elle appartient à CE morceau (l'air d'ici
+    // joue le rôle de `here`, le voxel est dans le voisin), et il est hors
+    // de l'étendue scannée. La passe opaque n'a pas d'early-out, d'où des
+    // trous visibles uniquement sur les lampes et les vitres.
     if glass_pass {
-        let any = (min.x..max.x).any(|x| {
-            (min.y..max.y).any(|y| (min.z..max.z).any(|z| in_pass(world, IVec3::new(x, y, z), pass)))
+        let d = world.dims();
+        let hi = IVec3::new(
+            (chunk_corner.x + CHUNK + 1).min(d.x).max(min.x),
+            (chunk_corner.y + CHUNK + 1).min(d.y).max(min.y),
+            (chunk_corner.z + CHUNK + 1).min(d.z).max(min.z),
+        );
+        let any = (min.x..hi.x).any(|x| {
+            (min.y..hi.y).any(|y| (min.z..hi.z).any(|z| in_pass(world, IVec3::new(x, y, z), pass)))
         });
         if !any {
             max = min;
@@ -337,11 +349,22 @@ pub fn build_pass(world: &impl Cells, chunk_corner: IVec3, pass: u8) -> Mesh {
         bevy::mesh::PrimitiveTopology::TriangleList,
         bevy::asset::RenderAssetUsages::RENDER_WORLD,
     );
+    let vertex_count = positions.len();
     mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
     mesh.insert_attribute(NORMAL_S8, VertexAttributeValues::Snorm8x4(normals));
     mesh.insert_attribute(UV_U16, VertexAttributeValues::Unorm16x2(uvs));
     mesh.insert_attribute(COLOR_U8, VertexAttributeValues::Unorm8x4(colors));
-    mesh.insert_indices(Indices::U32(indices));
+    // Indices U16 quand ça tient (toujours, pour un morceau de 16³) :
+    // la moitié de la mémoire d'indices en moins sur la carte graphique.
+    // U32 seulement si le maillage dépasse 65 535 sommets (cas impossible
+    // ici, gardé par prudence pour les gros corps rigides).
+    if vertex_count <= u16::MAX as usize {
+        mesh.insert_indices(Indices::U16(
+            indices.into_iter().map(|i| i as u16).collect(),
+        ));
+    } else {
+        mesh.insert_indices(Indices::U32(indices));
+    }
     mesh
 }
 
@@ -678,6 +701,51 @@ mod tests {
         world.set(IVec3::new(2, 2, 2), true, mat::GLASS);
         assert_eq!(build(&world, IVec3::ZERO, false).count_vertices(), 0);
         assert_eq!(build(&world, IVec3::ZERO, true).count_vertices(), 6 * 4);
+    }
+
+    #[test]
+    fn glass_on_neighbor_border_is_meshed_by_the_air_chunk() {
+        // Une vitre posée pile sur la frontière +X du morceau 0, air côté
+        // morceau 0 : sa face -X appartient au morceau 0, qui doit la
+        // produire même s'il ne contient aucune vitre (idem lampes, et
+        // axes Y/Z). C'était la cause des « faces transparentes ».
+        for (off, pass) in [
+            (IVec3::new(CHUNK, 2, 2), 1u8),
+            (IVec3::new(2, CHUNK, 2), 1),
+            (IVec3::new(2, 2, CHUNK), 1),
+            (IVec3::new(CHUNK, 2, 2), 2),
+            (IVec3::new(2, CHUNK, 2), 2),
+            (IVec3::new(2, 2, CHUNK), 2),
+        ] {
+            let mut world = VoxelWorld::new();
+            let m = if pass == 1 { mat::GLASS } else { mat::LAMP };
+            world.set(off, true, m);
+            let mesh = build_pass(&world, IVec3::ZERO, pass);
+            assert_eq!(mesh.count_vertices(), 4, "frontière +X/+Y/+Z, passe {pass}");
+            // Le morceau voisin, lui, dessine les 5 autres faces du voxel.
+            assert_eq!(build_pass(&world, off / CHUNK * CHUNK, pass).count_vertices(), 20);
+        }
+    }
+
+    #[test]
+    fn lamp_row_across_border_has_no_hole() {
+        //Le bras d'un lampadaire qui traverse une frontière de morceau :
+        // chaque voxel expose 4 faces (haut, bas, deux côtés), le bout
+        // gauche expose en plus sa face -X, le bout droit sa face +X.
+        let mut world = VoxelWorld::new();
+        for x in CHUNK - 1..CHUNK + 2 {
+            world.set(IVec3::new(x, 4, 4), true, mat::LAMP);
+        }
+        // Morceau 0 : les 5 faces du voxel d'extrémité gauche (posé dans ce
+        // morceau) — l'omission éventuelle de la face −X quand elle se
+        // retrouve frontalière était le trou « lampe transparente ».
+        let left = build_pass(&world, IVec3::ZERO, 2);
+        assert_eq!(left.count_vertices(), 5 * 4, "bout du bras (morceau 0)");
+        // Morceau 1 : les faces des deux voxels frontaliers. Fusion
+        // gloutonne : +Y/-Y/+Z/-Z des deux voxels voisins au minimum 1 quad
+        // chacune (2 × 2 quads), plus la face +X du bout droit = 5 quads.
+        let right = build_pass(&world, IVec3::new(CHUNK, 0, 0), 2);
+        assert_eq!(right.count_vertices(), 5 * 4, "corps du bras (morceau 1)");
     }
 
     #[test]

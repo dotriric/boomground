@@ -1,5 +1,42 @@
 # Changelog
 
+## 1.7.1
+
+- **Faces « transparentes » corrigées** là où elles subsistaient :
+  - lampes (lampadaires, plafonniers) et vitres posées sur une frontière de
+    morceaux : leur face du côté voisin n'était dessinée par personne
+    (l'optimisation « rien à mailler » ne regardait que les cellules du
+    morceau lui-même) — on voyait à travers ;
+  - vitres des voitures : le mélange des faces avant/arrière d'un même
+    maillage (AlphaMode::Blend sans écriture de profondeur, aucun tri
+    intra-maillage) est remplacé par AlphaToCoverage — plus de vitres qui
+    disparaissent selon l'angle ;
+  - eau et tsunamis : la face frontière d'une cellule d'eau posée sur une
+    frontière de morceaux n'était jamais reconstruite (mur d'eau transparent).
+- **Lampes réellement lumineuses** : `unlit` faisait ignorer `emissive` par le
+  shader (idem traceurs, feu et flammes) — elles rendaient un jaune pâle plat
+  qui se fondait dans le ciel.
+- **Frame limit qui fonctionne** : l'ancienne boucle ne dormait que la moitié
+  du dépassement (limite 60 = ~85 FPS réels) ; échéance absolue par frame,
+  sans dérive ni rattrapage en rafale.
+- **Sortie de voiture** : plus d'écrasement par sa propre voiture (exclusion
+  de l'ancien véhicule pendant 2 s après la sortie, position serveur posée
+  immédiatement, et le dernier recours ne place plus le joueur SOUS la
+  voiture — sur le toit, à l'arrêt, sans danger).
+- **Portes** : plus aucune porte bloquée dès la génération (pilier, meuble,
+  caisses d'entrepôt ou une autre porte sur sa zone de rangement) — on
+  déblaie les éléments gênants, sinon l'ouverture reste un passage libre.
+- **Fin du crash sans explication quand la VRAM sature** : à 85 % du budget
+  signalé par le pilote, l'erreur est propre et précoce ; la qualité est
+  dégradée au minimum et le rendu relancé ; au second échec seulement, le
+  jeu ferme — avec le motif écrit dans crash.txt et annonce dans le titre de
+  la fenêtre.
+- **Mémoire** : allocation VRAM compacte (`MemoryHints::MemoryUsage`),
+  indices U16 quand le maillage le permet (moitié de la mémoire d'indices),
+  MSAA retiré de la caméra vue en main (jusqu'à 60 Mo de VRAM en moins),
+  carte d'ombres initiale 2048 (et non 4096), ancienne carte libérée dès le
+  début d'une régénération (pic de RAM divisé par deux).
+
 ## 1.7.0
 
 - **Eau** : simulation voxel (chute, étalement, remplissage des creux, bunkers et escaliers),

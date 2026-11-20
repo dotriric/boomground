@@ -52,7 +52,12 @@ pub fn run() {
     App::new()
         .insert_resource(bevy::audio::DefaultSpatialScale(bevy::audio::SpatialScale::new(0.03)))
         .insert_resource(ClearColor(Color::srgb(0.55, 0.70, 0.90)))
-        .insert_resource(DirectionalLightShadowMap { size: 4096 })
+        // 2048 et non 4096 : la valeur doit coller au réglage par défaut
+        // (`shadows: 1` => 2048, appliqué par le menu au premier tick). Un
+        // 4096 initial allouait 67 Mo de VRAM en plus dès la première frame,
+        // pour rien — et faisait déborder les petites cartes graphiques au
+        // chargement.
+        .insert_resource(DirectionalLightShadowMap { size: 2048 })
         .insert_resource(game::load_settings())
         .init_resource::<VoxelWorld>()
         .init_resource::<debris::Rng>()
@@ -99,6 +104,26 @@ pub fn run() {
                 decorations: !touch::is_touch_platform(),
                 ..default()
             }),
+            ..default()
+        }).set(bevy::render::RenderPlugin {
+            render_creation: bevy::render::settings::RenderCreation::Automatic(Box::new(
+                bevy::render::settings::WgpuSettings {
+                    // À ~85 % du budget VRAM signalé par le pilote, toute
+                    // nouvelle ressource renvoie une erreur OOM **propre et
+                    // précoce** (attrapée par `crashlog::on_render_error`,
+                    // qui dégrade la qualité et relance le rendu) au lieu
+                    // d'attendre que le pilote retire le device — crash
+                    // instantané, sans le moindre message.
+                    instance_memory_budget_thresholds: wgpu::MemoryBudgetThresholds {
+                        for_resource_creation: Some(85),
+                        ..default()
+                    },
+                    // Les blocs d'allocation par défaut gaspillent la VRAM
+                    // (grands blocs réutilisables) : mode compact, adapté à
+                    // un monde fait de centaines de petits maillages.
+                    memory_hints: wgpu::MemoryHints::MemoryUsage,
+                    ..default()
+                })),
             ..default()
         }))
         // Erreurs GPU : journalisées, et non fatales sur téléphone.

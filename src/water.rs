@@ -301,14 +301,32 @@ pub struct WaterMirror {
 
 impl WaterMirror {
     pub fn apply(&mut self, add: &[IVec3], remove: &[IVec3]) {
+        let touch = |c: IVec3, dirty: &mut std::collections::HashSet<IVec3>| {
+            // Le morceau de la cellule, et — si elle touche un bord bas — le
+            // morceau voisin : la face -X/-Y/-Z d'une cellule posée sur une
+            // frontière appartient au morceau d'à côté (celui de l'air), et
+            // sans le reconstruire, le mur d'eau du tsunami manquait de sa
+            // face frontière (on voyait à travers).
+            let k = c.div_euclid(IVec3::splat(crate::vmesh::CHUNK));
+            dirty.insert(k);
+            let local = c.rem_euclid(IVec3::splat(crate::vmesh::CHUNK));
+            let mut n = k;
+            for axis in 0..3 {
+                if local[axis] == 0 {
+                    n[axis] -= 1;
+                    dirty.insert(n);
+                    n[axis] += 1;
+                }
+            }
+        };
         for &c in add {
             if self.cells.insert(c) {
-                self.dirty.insert(c.div_euclid(IVec3::splat(crate::vmesh::CHUNK)));
+                touch(c, &mut self.dirty);
             }
         }
-        for c in remove {
-            if self.cells.remove(c) {
-                self.dirty.insert(c.div_euclid(IVec3::splat(crate::vmesh::CHUNK)));
+        for &c in remove {
+            if self.cells.remove(&c) {
+                touch(c, &mut self.dirty);
             }
         }
     }
@@ -322,6 +340,23 @@ impl WaterMirror {
 mod tests {
     use super::*;
     use crate::world::mat;
+
+    /// Une cellule d'eau posée sur une frontière de morceau salit aussi le
+    /// morceau voisin (côté -X/-Y/-Z) : c'est lui qui dessine la face
+    /// frontière — sans ça, le mur d'eau du tsunami était transparent.
+    #[test]
+    fn water_on_chunk_border_marks_the_neighbor_dirty() {
+        use crate::vmesh::CHUNK;
+        let mut m = WaterMirror::default();
+        m.apply(&[IVec3::new(CHUNK, 5, 5), IVec3::new(3, CHUNK + 2, 7)], &[]);
+        assert!(m.dirty.contains(&IVec3::new(1, 0, 0)));
+        assert!(m.dirty.contains(&IVec3::new(0, 0, 0)), "voisin -X");
+        assert!(m.dirty.contains(&IVec3::new(0, 1, 0)), "voisin -Y");
+        let dirty = m.dirty.len();
+        // Deuxième application identique : rien de neuf.
+        m.apply(&[IVec3::new(CHUNK, 5, 5), IVec3::new(3, CHUNK + 2, 7)], &[]);
+        assert_eq!(m.dirty.len(), dirty);
+    }
 
     /// Un bassin : l'eau versée tombe, puis remplit le fond sans déborder.
     #[test]
