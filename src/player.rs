@@ -130,7 +130,12 @@ pub fn spawn_player(mut commands: Commands, world: Res<VoxelWorld>) {
                     ViewModelCamera,
                     Camera3d::default(),
                     Hdr,
-                    Msaa::Sample4,
+                    // Pas d'anticrénelage sur la vue en main : l'image ne
+                    // couvre que les armes, le tampon de profondeur MSAA
+                    // pleine taille qu'exigeait le 4× coûtait 18 à 60 Mo de
+                    // VRAM en double de celui du monde. (Le menu n'écrase
+                    // plus ce choix : la requête exclut cette caméra.)
+                    Msaa::Off,
                     Tonemapping::TonyMcMapface,
                     grading(),
                     Camera {

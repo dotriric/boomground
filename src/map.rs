@@ -423,17 +423,33 @@ fn building(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3, s: &St
     }
 
     // Portes battantes dans les ouvertures (une face sur deux environ).
+    // Toutes les cellules des portes — feuille fermée ET zone où la porte
+    // ouverte vient se ranger — sont réservées : sans ça, un pilier, un
+    // meuble ou une autre porte posés dessus après coup rendaient la porte
+    // définitivement bloquée (voir `toggle_door`, qui refuse de bouger une
+    // porte dont une cellule de destination est occupée).
+    let mut reserved: Vec<IVec3> = Vec::new();
     for face in 0..4 {
-        if rng.chance(0.6) {
-            add_door(w, min, max, face, mid_x, mid_z);
+        let (closed, open) = door_cells(min, max, face, mid_x, mid_z);
+        // Déjà pris par une autre porte du bâtiment (feuille ou rangement)
+        // ou par le décor déjà posé (piliers, escaliers) : pas de porte,
+        // l'ouverture reste un passage libre.
+        let free_zone = !closed
+            .iter()
+            .chain(&open)
+            .any(|c| w.is_solid(*c) || reserved.contains(c));
+        if rng.chance(0.6) && free_zone {
+            add_door(w, &closed, &open);
         }
+        reserved.extend(closed);
+        reserved.extend(open);
     }
 
     // Mobilier et lumières, étage par étage.
     let mut levels = vec![min.y];
     levels.extend(floors.iter().copied());
     for &base in &levels {
-        furnish(w, rng, min, max, base, s);
+        furnish(w, rng, min, max, base, s, &reserved);
     }
 
     // Quelques caisses au rez-de-chaussée.
@@ -441,7 +457,7 @@ fn building(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3, s: &St
         let x = rng.range(min.x + WALL + 2, max.x - WALL - 5);
         let z = rng.range(max.z - WALL - 10, max.z - WALL - 4);
         let at = IVec3::new(x, min.y, z);
-        if free(w, at, at + IVec3::new(5, 8, 5)) {
+        if free_excluding(w, at, at + IVec3::new(5, 8, 5), &reserved) {
             crate_stack(w, rng, at);
         }
     }
@@ -461,12 +477,31 @@ fn free(w: &VoxelWorld, a: IVec3, b: IVec3) -> bool {
     true
 }
 
-/// Porte battante dans l'ouverture d'une face (0 ouest, 1 est, 2 nord,
-/// 3 sud). Ouverte, elle se range contre le mur, côté intérieur.
-fn add_door(w: &mut VoxelWorld, min: IVec3, max: IVec3, face: i32, mid_x: i32, mid_z: i32) {
+/// Comme [`free`], mais refuse aussi de toucher aux cellules `keep`
+/// (zone de débattement des portes, même vide).
+fn free_excluding(w: &VoxelWorld, a: IVec3, b: IVec3, keep: &[IVec3]) -> bool {
+    if keep.is_empty() {
+        return free(w, a, b);
+    }
+    for y in a.y..b.y {
+        for x in a.x..b.x {
+            for z in a.z..b.z {
+                let c = IVec3::new(x, y, z);
+                if keep.contains(&c) || w.is_solid(c) {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// Cellules d'une porte dans l'ouverture d'une face (0 ouest, 1 est,
+/// 2 nord, 3 sud) : `(feuille fermée, feuille ouverte)`. Ouverte, elle se
+/// range contre le mur, côté intérieur.
+fn door_cells(min: IVec3, max: IVec3, face: i32, mid_x: i32, mid_z: i32) -> (Vec<IVec3>, Vec<IVec3>) {
     let mut closed = Vec::new();
     let mut open = Vec::new();
-    let mut handle = Vec::new();
     for y in 0..6 {
         for i in 0..4 {
             for t in 0..WALL {
@@ -489,18 +524,44 @@ fn add_door(w: &mut VoxelWorld, min: IVec3, max: IVec3, face: i32, mid_x: i32, m
                         IVec3::new(mid_x - 2 + t, yy, max.z - WALL - 1 - i),
                     ),
                 };
-                handle.push(i == 3 && y == 3);
                 closed.push(c);
                 open.push(o);
             }
         }
     }
-    w.add_door(closed, open, |i| if handle[i] { METAL } else { WOOD });
+    (closed, open)
+}
+
+/// Pose une porte battante sur les cellules calculées par [`door_cells`]
+/// (déjà vérifiées libres et non réservées par l'appelant).
+fn add_door(w: &mut VoxelWorld, closed: &[IVec3], open: &[IVec3]) {
+    let mut handle = Vec::with_capacity(closed.len());
+    for y in 0..6 {
+        for i in 0..4 {
+            for _t in 0..WALL {
+                handle.push(i == 3 && y == 3);
+            }
+        }
+    }
+    w.add_door(closed.to_vec(), open.to_vec(), |i| {
+        if handle[i] { METAL } else { WOOD }
+    });
 }
 
 /// Table et chaises, bureau, canapé, étagère, lampadaire d'intérieur, et
 /// plafonniers : tout ce qui rend un étage habité.
-fn furnish(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3, base: i32, s: &Style) {
+///
+/// `keep` : cellules des portes à ne pas encombrer (zone où la porte ouverte
+/// vient se ranger) — sans ça, un meuble posé dessus bloquait la porte.
+fn furnish(
+    w: &mut VoxelWorld,
+    rng: &mut MapRng,
+    min: IVec3,
+    max: IVec3,
+    base: i32,
+    s: &Style,
+    keep: &[IVec3],
+) {
     let x0 = min.x + WALL + 1;
     let x1 = max.x - WALL - 1;
     let mut z0 = min.z + WALL + 1;
@@ -523,7 +584,7 @@ fn furnish(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3, base: i
             // Accroché à un vrai plafond (sinon il flotte au dernier étage
             // ou sous un toit plus bas).
             let hung = (0..2).all(|dx| (0..2).all(|dz| w.is_solid(at + IVec3::new(dx, 1, dz))));
-            if hung && free(w, at, at + IVec3::new(2, 1, 2)) {
+            if hung && free_excluding(w, at, at + IVec3::new(2, 1, 2), keep) {
                 w.fill(at, at + IVec3::new(2, 1, 2), LAMP);
             }
             x += 8;
@@ -545,7 +606,7 @@ fn furnish(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3, base: i
         match rng.range(0, 5) {
             // Table 4×2 avec quatre chaises.
             0 | 1 => {
-                if !free(w, at, at + IVec3::new(6, 4, 6)) {
+                if !free_excluding(w, at, at + IVec3::new(6, 4, 6), keep) {
                     continue;
                 }
                 let top = at + IVec3::new(1, 0, 2);
@@ -564,7 +625,7 @@ fn furnish(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3, base: i
             }
             // Bureau avec écran et chaise.
             2 => {
-                if !free(w, at, at + IVec3::new(6, 5, 5)) {
+                if !free_excluding(w, at, at + IVec3::new(6, 5, 5), keep) {
                     continue;
                 }
                 w.fill(at + IVec3::new(0, 0, 0), at + IVec3::new(1, 1, 2), FURN_METAL);
@@ -578,7 +639,7 @@ fn furnish(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3, base: i
             }
             // Canapé.
             3 => {
-                if !free(w, at, at + IVec3::new(5, 3, 3)) {
+                if !free_excluding(w, at, at + IVec3::new(5, 3, 3), keep) {
                     continue;
                 }
                 w.fill(at, at + IVec3::new(5, 1, 2), BLUE);
@@ -588,7 +649,7 @@ fn furnish(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3, base: i
             }
             // Étagère garnie.
             4 => {
-                if !free(w, at, at + IVec3::new(6, 6, 2)) {
+                if !free_excluding(w, at, at + IVec3::new(6, 6, 2), keep) {
                     continue;
                 }
                 w.fill(at, at + IVec3::new(5, 5, 1), FURN_WOOD);
@@ -601,7 +662,7 @@ fn furnish(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3, base: i
             }
             // Lampadaire d'intérieur.
             _ => {
-                if !free(w, at, at + IVec3::new(1, 6, 1)) {
+                if !free_excluding(w, at, at + IVec3::new(1, 6, 1), keep) {
                     continue;
                 }
                 w.fill(at, at + IVec3::new(1, 4, 1), FURN_METAL);

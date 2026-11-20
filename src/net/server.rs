@@ -197,6 +197,12 @@ struct Client {
     driving: Option<u32>,
     drive: (i8, i8, bool),
     drive_at: Instant,
+    /// Véhicule **à peine quitté** : jusqu'à cette date, il ne peut pas
+    /// écraser son ancien conducteur. Sans ça, entre l'éjection et la
+    /// réception du `Teleport` par le client, la position du joueur restait
+    /// celle de la voiture (`driving` était déjà vide) : `crush_and_fall`
+    /// le voyait « dedans » et le blessait dès la première seconde.
+    vehicle_left: Option<(u32, Instant)>,
 }
 
 impl Client {
@@ -399,6 +405,7 @@ fn new_client(stream: TcpStream, addr: IpAddr, rules: &Rules, mode: u8) -> Clien
         driving: None,
         drive: (0, 0, false),
         drive_at: now,
+        vehicle_left: None,
     }
 }
 
@@ -1759,21 +1766,29 @@ fn crush_and_fall(server: &mut ServerState, now: Instant) {
     if server.sim.blocks.is_empty() && server.sim.bodies.is_empty() {
         return;
     }
-    let victims: Vec<(u16, Vec3, Option<u32>)> = server
+    let victims: Vec<(u16, Vec3, Option<u32>, Option<(u32, Instant)>)> = server
         .clients
         .iter()
         .filter(|(_, c)| {
             c.joined && c.placed && c.dead_until.is_none() && now.duration_since(c.last_crush) > Duration::from_millis(400)
         })
-        .map(|(&id, c)| (id, c.pos, c.driving))
+        // La grâce « véhicule à peine quitté » est vérifiée à la date `now` :
+        // une entrée expirée ne protège plus.
+        .map(|(&id, c)| {
+            let left = c.vehicle_left.filter(|(_, until)| now < *until);
+            (id, c.pos, c.driving, left)
+        })
         .collect();
-    for (id, pos, driving) in victims {
+    for (id, pos, driving, vehicle_left) in victims {
         let lo = pos + Vec3::new(-0.3, 0.0, -0.3);
         let hi = pos + Vec3::new(0.3, 1.7, 0.3);
         // `driving` est exclu : le conducteur est **dans** son véhicule, il
         // serait sinon écrasé par sa propre voiture dès la première
-        // accélération.
-        if let Some((mass, speed)) = server.sim.crush_at_except(lo, hi, driving) {
+        // accélération. `vehicle_left` pare pour les deux secondes qui
+        // suivent une sortie : la position serveur du joueur ne rattrape
+        // celle du client qu'après le `Teleport`.
+        let except = driving.or(vehicle_left.map(|(b, _)| b));
+        if let Some((mass, speed)) = server.sim.crush_at_except(lo, hi, except) {
             let amount = (mass * speed * 1.6).min(95.0);
             if amount > 4.0 {
                 if let Some(c) = server.clients.get_mut(&id) {
@@ -2302,6 +2317,7 @@ fn handle_enter(server: &mut ServerState, id: u16, car: u16) {
     }
     if let Some(c) = server.clients.get_mut(&id) {
         c.driving = Some(body_id);
+        c.vehicle_left = None;
         c.drive = (0, 0, false);
         c.drive_at = Instant::now();
     }
@@ -2310,42 +2326,72 @@ fn handle_enter(server: &mut ServerState, id: u16, car: u16) {
 
 /// Fait descendre un conducteur (à côté du véhicule si `place`).
 fn eject_driver(server: &mut ServerState, id: u16, place: bool) {
+    let now = Instant::now();
     let Some(c) = server.clients.get_mut(&id) else { return };
     let Some(body_id) = c.driving.take() else { return };
+    // Deux secondes pendant lesquelles son ancienne voiture ne peut pas
+    // l'écraser (le temps que le `Teleport` arrive et que la position
+    // serveur reprenne le suivi réel).
+    c.vehicle_left = Some((body_id, now + Duration::from_secs(2)));
     let mut target = None;
     if place {
-        if let Some(b) = server.sim.body(body_id) {
-            let fwd = b.rot * Vec3::NEG_Z;
+        let pos = server.sim.body(body_id).map(|b| (b.pos, b.rot));
+        if let Some((b_pos, b_rot)) = pos {
+            let fwd = b_rot * Vec3::NEG_Z;
             let side = Vec3::new(-fwd.z, 0.0, fwd.x).normalize_or_zero();
             // On cherche le sol **au niveau du véhicule**, jamais plus haut :
             // c'était ce qui posait le joueur sur le toit de l'immeuble le
             // plus proche quand il sortait d'une voiture garée à côté.
-            let ceiling = b.pos.y + 1.2;
-            for s in [3.0, -3.0, 4.5, 0.0, -4.5, 6.0] {
-                let p = b.pos + side * s;
-                let ground = server.world.ground_height_below(p.x, p.z, ceiling);
-                // Un sol bien plus bas que la voiture = un trou ou une falaise.
-                if ground < b.pos.y - 6.0 {
-                    continue;
+            let ceiling = b_pos.y + 1.2;
+            // De chaque côté, puis devant/derrière : une voiture serrée entre
+            // deux murs doit quand même avoir une sortie. Jamais `0.0` :
+            // le centre du véhicule est occupé par la voiture elle-même,
+            // c'était la cause des écrasements à la sortie.
+            for s in [3.0, -3.0, 4.5, -4.5, 6.0, -6.0] {
+                for dir in [side, fwd, -fwd] {
+                    let p = b_pos + dir * s;
+                    let ground = server.world.ground_height_below(p.x, p.z, ceiling);
+                    // Un sol bien plus bas que la voiture = un trou ou une
+                    // falaise.
+                    if ground < b_pos.y - 6.0 {
+                        continue;
+                    }
+                    let candidate = Vec3::new(p.x, ground + 0.1, p.z);
+                    if !server.world.overlaps(
+                        candidate + Vec3::new(-0.3, 0.1, -0.3),
+                        candidate + Vec3::new(0.3, 1.7, 0.3),
+                    ) {
+                        target = Some(candidate);
+                        break;
+                    }
                 }
-                let candidate = Vec3::new(p.x, ground + 0.1, p.z);
-                if !server.world.overlaps(candidate + Vec3::new(-0.3, 0.1, -0.3), candidate + Vec3::new(0.3, 1.7, 0.3)) {
-                    target = Some(candidate);
+                if target.is_some() {
                     break;
                 }
             }
             if target.is_none() {
-                // Dernier recours : à côté du véhicule, un peu plus bas.
-                let p = b.pos - Vec3::Y * 0.8;
-                target = Some(p);
+                // Dernier recours : **sur** le toit, jamais dessous. Posé sur
+                // la carrosserie à l'arrêt, il ne prend aucun dégât (un corps
+                // qui ne bouge pas n'écrase personne) et il peut ressauter.
+                let probe = b_pos + Vec3::Y * 2.0;
+                if !server.world.overlaps(
+                    probe + Vec3::new(-0.3, 0.0, -0.3),
+                    probe + Vec3::new(0.3, 1.7, 0.3),
+                ) {
+                    target = Some(probe);
+                } else {
+                    target = Some(b_pos - Vec3::Y * 0.8);
+                }
             }
         }
     }
     if let Some(c) = server.clients.get_mut(&id) {
         if let Some(p) = target {
+            // Position serveur immédiate : dès la sortie, la physique ne
+            // voit plus un joueur coincé dans la voiture.
             c.pos = p;
             c.last_valid = p;
-            c.teleporting = Some((p, Instant::now()));
+            c.teleporting = Some((p, now));
             c.queue(&Packet::Teleport { pos: p }.encode());
         }
         c.queue(&Packet::Driving { body: 0 }.encode());

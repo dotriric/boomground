@@ -527,9 +527,9 @@ pub fn setup_fire(
         sphere: meshes.add(Sphere::new(1.0).mesh().ico(2).unwrap()),
         material: materials.add(StandardMaterial {
             base_color: Color::srgba(1.0, 0.6, 0.2, 0.85),
+            // `unlit` aurait ignoré l'emissive (voir lamp_material).
             emissive: LinearRgba::rgb(8.0, 3.2, 0.6),
             alpha_mode: AlphaMode::Blend,
-            unlit: true,
             ..default()
         }),
         smoke: materials.add(StandardMaterial {
@@ -778,13 +778,11 @@ pub fn setup_particles(mut commands: Commands, mut meshes: ResMut<Assets<Mesh>>,
         materials.add(StandardMaterial {
             base_color: Color::srgb(1.0, 0.45, 0.08),
             emissive: LinearRgba::rgb(7.0, 2.2, 0.2),
-            unlit: true,
             ..default()
         }),
         materials.add(StandardMaterial {
             base_color: Color::srgb(1.0, 0.85, 0.3),
             emissive: LinearRgba::rgb(8.0, 6.0, 1.2),
-            unlit: true,
             ..default()
         }),
     ];

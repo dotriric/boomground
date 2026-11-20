@@ -1,6 +1,6 @@
 [package]
 name = "boomground"
-version = "1.7.0"
+version = "1.7.1"
 edition = "2021"
 description = "Destruction de voxels en bac à sable ou en mode boutique."
 license-file = "LICENSE"
@@ -14,6 +14,9 @@ path = "src/main.rs"
 # "wav" : les bruitages sont synthétisés à la volée puis encodés en WAV, ce qui
 # évite d'embarquer des fichiers audio.
 bevy = { version = "0.20", features = ["wav", "vorbis"] }
+# Accès direct aux types wgpu (seuils de budget VRAM) ; version alignée sur
+# celle de Bevy : ce crate est déjà compilé, aucun surcoût.
+wgpu = { version = "30", default-features = false }
 # Heure locale de la machine pour le journal du serveur.
 # Voix de proximité : capture / lecture audio et suppression de bruit.
 cpal = "0.17"

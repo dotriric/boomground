@@ -1888,7 +1888,10 @@ pub fn settings_panel(
     mut suns: Query<&mut DirectionalLight>,
     mut shadow_map: ResMut<bevy::light::DirectionalLightShadowMap>,
     mut density: ResMut<crate::fx::ParticleDensity>,
-    mut cameras: Query<(Entity, &mut Msaa), With<Camera3d>>,
+    // La caméra de vue en main garde son MSAA à elle (désactivé) : elle est
+    // exclue, sinon le réglage mondial lui rendait un tampon de profondeur
+    // 4× pour rien.
+    mut cameras: Query<(Entity, &mut Msaa), (With<Camera3d>, Without<crate::player::ViewModelCamera>)>,
     world_cam: Query<Entity, With<crate::player::WorldCamera>>,
     mut commands: Commands,
     mut first: Local<bool>,
