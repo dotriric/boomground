@@ -33,8 +33,8 @@ pub struct Water {
     active: HashSet<IVec3>,
     /// Sources : cellule, débit (niveaux par pas), durée restante (s).
     sources: Vec<(IVec3, u8, f32)>,
-    /// Cellules visibles connues des clients.
-    shown: HashSet<IVec3>,
+    /// Cellules visibles connues des clients, avec leur niveau.
+    shown: HashMap<IVec3, u8>,
     /// Cellules modifiées depuis le dernier envoi aux clients.
     touched: HashSet<IVec3>,
     rng: u64,
@@ -87,7 +87,7 @@ impl Water {
 
     /// Vide toute l'eau ; renvoie les cellules qui étaient affichées.
     pub fn drain_all(&mut self) -> Vec<IVec3> {
-        let shown = self.shown.drain().collect();
+        let shown = self.shown.drain().map(|(c, _)| c).collect();
         self.touched.clear();
         self.cells.clear();
         self.active.clear();
@@ -262,17 +262,27 @@ impl Water {
         }
     }
 
-    /// Différences d'affichage depuis le dernier appel : (apparues,
-    /// disparues). Seules les cellules modifiées sont examinées.
-    pub fn visible_delta(&mut self) -> (Vec<IVec3>, Vec<IVec3>) {
+    /// Différences d'affichage depuis le dernier appel : (apparues avec leur
+    /// niveau, disparues). Seules les cellules modifiées sont examinées ;
+    /// un changement de niveau seul (nappe qui monte ou s'évapore) est
+    /// renvoyé comme une « apparition », qui met la cellule à jour chez les
+    /// clients.
+    pub fn visible_delta(&mut self) -> (Vec<(IVec3, u8)>, Vec<IVec3>) {
         let mut added = Vec::new();
         let mut removed = Vec::new();
         for c in std::mem::take(&mut self.touched) {
-            let vis = self.cells.get(&c).is_some_and(|l| *l >= VISIBLE);
-            if vis && self.shown.insert(c) {
-                added.push(c);
-            } else if !vis && self.shown.remove(&c) {
-                removed.push(c);
+            let lvl = self.cells.get(&c).filter(|l| **l >= VISIBLE).copied();
+            match (lvl, self.shown.get(&c).copied()) {
+                (Some(l), Some(old)) if l == old => {}
+                (Some(l), _) => {
+                    self.shown.insert(c, l);
+                    added.push((c, l));
+                }
+                (None, Some(_)) => {
+                    self.shown.remove(&c);
+                    removed.push(c);
+                }
+                (None, None) => {}
             }
         }
         (added, removed)
@@ -282,9 +292,10 @@ impl Water {
         self.touched.insert(c);
     }
 
-    /// Toutes les cellules visibles (pour un joueur qui arrive).
-    pub fn visible(&self) -> Vec<IVec3> {
-        self.shown.iter().copied().collect()
+    /// Toutes les cellules visibles avec leur niveau (pour un joueur qui
+    /// arrive).
+    pub fn visible(&self) -> Vec<(IVec3, u8)> {
+        self.shown.iter().map(|(&c, &l)| (c, l)).collect()
     }
 }
 
@@ -292,15 +303,16 @@ fn in_grid(world: &VoxelWorld, c: IVec3) -> bool {
     c.cmpge(IVec3::ZERO).all() && c.cmplt(world.dims).all()
 }
 
-/// Eau vue par le client : cellules visibles, maillées comme des voxels.
+/// Eau vue par le client : cellules visibles avec leur niveau (1-8 ; la
+/// surface est affichée à `niveau / 8` de la hauteur de la cellule).
 #[derive(Resource, Default)]
 pub struct WaterMirror {
-    pub cells: HashSet<IVec3>,
+    pub levels: HashMap<IVec3, u8>,
     pub dirty: HashSet<IVec3>,
 }
 
 impl WaterMirror {
-    pub fn apply(&mut self, add: &[IVec3], remove: &[IVec3]) {
+    pub fn apply(&mut self, add: &[(IVec3, u8)], remove: &[IVec3]) {
         let touch = |c: IVec3, dirty: &mut std::collections::HashSet<IVec3>| {
             // Le morceau de la cellule, et — si elle touche un bord bas — le
             // morceau voisin : la face -X/-Y/-Z d'une cellule posée sur une
@@ -319,20 +331,32 @@ impl WaterMirror {
                 }
             }
         };
-        for &c in add {
-            if self.cells.insert(c) {
-                touch(c, &mut self.dirty);
+        for &(c, lvl) in add {
+            let lvl = lvl.clamp(1, crate::water::FULL);
+            self.levels.insert(c, lvl);
+            touch(c, &mut self.dirty);
+            // La surface des cellules au-dessus dépend de la nôtre (elle se
+            // ferme quand on est pleine), et le dessous ferme son fond.
+            if lvl != FULL {
+                touch(c + IVec3::Y, &mut self.dirty);
             }
+            touch(c - IVec3::Y, &mut self.dirty);
         }
         for &c in remove {
-            if self.cells.remove(&c) {
+            if self.levels.remove(&c).is_some() {
                 touch(c, &mut self.dirty);
+                touch(c - IVec3::Y, &mut self.dirty);
             }
         }
     }
 
     pub fn contains(&self, c: IVec3) -> bool {
-        self.cells.contains(&c)
+        self.levels.contains_key(&c)
+    }
+
+    /// Niveau affiché (0 = pas d'eau).
+    pub fn level(&self, c: IVec3) -> u8 {
+        self.levels.get(&c).copied().unwrap_or(0)
     }
 }
 
@@ -348,13 +372,19 @@ mod tests {
     fn water_on_chunk_border_marks_the_neighbor_dirty() {
         use crate::vmesh::CHUNK;
         let mut m = WaterMirror::default();
-        m.apply(&[IVec3::new(CHUNK, 5, 5), IVec3::new(3, CHUNK + 2, 7)], &[]);
+        m.apply(
+            &[(IVec3::new(CHUNK, 5, 5), 5u8), (IVec3::new(3, CHUNK + 2, 7), 8)],
+            &[],
+        );
         assert!(m.dirty.contains(&IVec3::new(1, 0, 0)));
         assert!(m.dirty.contains(&IVec3::new(0, 0, 0)), "voisin -X");
         assert!(m.dirty.contains(&IVec3::new(0, 1, 0)), "voisin -Y");
         let dirty = m.dirty.len();
         // Deuxième application identique : rien de neuf.
-        m.apply(&[IVec3::new(CHUNK, 5, 5), IVec3::new(3, CHUNK + 2, 7)], &[]);
+        m.apply(
+            &[(IVec3::new(CHUNK, 5, 5), 5u8), (IVec3::new(3, CHUNK + 2, 7), 8)],
+            &[],
+        );
         assert_eq!(m.dirty.len(), dirty);
     }
 

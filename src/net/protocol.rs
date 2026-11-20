@@ -19,7 +19,7 @@ pub const DEFAULT_PORT: u16 = 28431;
 pub const DISCOVERY_PORT: u16 = 28432;
 /// Version du protocole : deux versions différentes refusent de jouer
 /// ensemble (message clair plutôt que des paquets incompréhensibles).
-pub const PROTOCOL_VERSION: u16 = 7;
+pub const PROTOCOL_VERSION: u16 = 8;
 /// Nombre maximal de joueurs dans une partie.
 pub const MAX_PLAYERS: usize = 16;
 
@@ -125,8 +125,12 @@ pub enum Packet {
     /// Serveur → clients : roues des véhicules `(id, centres des roues dans
     /// le repère du corps, braquage, rotation)`.
     Wheels { list: Vec<(u32, [Vec3; 4], f32, f32)> },
-    /// Serveur → clients : cellules d'eau apparues / disparues.
-    Water { add: Vec<[u16; 3]>, remove: Vec<[u16; 3]> },
+    /// Serveur → clients : cellules d'eau apparues `(x, y, z, niveau 1–8)` /
+    /// disparues. Le niveau sert à afficher la surface à la bonne hauteur.
+    Water {
+        add: Vec<[u16; 4]>,
+        remove: Vec<[u16; 3]>,
+    },
     /// Serveur → clients : météo (pluie 0..255).
     Weather { rain: u8 },
     /// Serveur → clients : tornades `(id, position au sol, rayon)`.
@@ -472,12 +476,16 @@ impl Packet {
             }
             Packet::Water { add, remove } => {
                 w.u8(47);
-                for list in [add, remove] {
-                    w.u32(list.len() as u32);
-                    for c in list {
-                        for v in c {
-                            w.u16(*v);
-                        }
+                w.u32(add.len() as u32);
+                for c in add {
+                    for v in c {
+                        w.u16(*v);
+                    }
+                }
+                w.u32(remove.len() as u32);
+                for c in remove {
+                    for v in c {
+                        w.u16(*v);
                     }
                 }
             }
@@ -785,18 +793,22 @@ impl Packet {
             }
             25 => Packet::BodyRemove { id: cur.u32()? },
             47 => {
-                let mut lists: [Vec<[u16; 3]>; 2] = [Vec::new(), Vec::new()];
-                for list in &mut lists {
-                    let n = cur.u32()? as usize;
-                    if n > 400_000 {
-                        return None;
-                    }
-                    list.reserve(n.min(65_536));
-                    for _ in 0..n {
-                        list.push([cur.u16()?, cur.u16()?, cur.u16()?]);
-                    }
+                let n = cur.u32()? as usize;
+                if n > 400_000 {
+                    return None;
                 }
-                let [add, remove] = lists;
+                let mut add = Vec::with_capacity(n.min(65_536));
+                for _ in 0..n {
+                    add.push([cur.u16()?, cur.u16()?, cur.u16()?, cur.u16()?]);
+                }
+                let n = cur.u32()? as usize;
+                if n > 400_000 {
+                    return None;
+                }
+                let mut remove = Vec::with_capacity(n.min(65_536));
+                for _ in 0..n {
+                    remove.push([cur.u16()?, cur.u16()?, cur.u16()?]);
+                }
                 Packet::Water { add, remove }
             }
             48 => Packet::Weather { rain: cur.u8()? },

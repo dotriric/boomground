@@ -394,7 +394,7 @@ pub fn receive(
                 flags,
             } => {
                 d.game.multi = !lobby.solo;
-                water.cells.clear();
+                water.levels.clear();
                 water.dirty.clear();
                 tornadoes.0.clear();
                 weather.rain = 0.0;
@@ -499,8 +499,15 @@ pub fn receive(
                 mirror.pose_bodies(&list, net_bodies);
             }
             Packet::Water { add, remove } => {
-                let conv = |v: &[[u16; 3]]| v.iter().map(|c| IVec3::new(c[0] as i32, c[1] as i32, c[2] as i32)).collect::<Vec<_>>();
-                water.apply(&conv(&add), &conv(&remove));
+                let add = add
+                    .iter()
+                    .map(|c| (IVec3::new(c[0] as i32, c[1] as i32, c[2] as i32), c[3] as u8))
+                    .collect::<Vec<_>>();
+                let remove = remove
+                    .iter()
+                    .map(|c| IVec3::new(c[0] as i32, c[1] as i32, c[2] as i32))
+                    .collect::<Vec<_>>();
+                water.apply(&add, &remove);
             }
             Packet::Weather { rain } => {
                 weather.rain = rain as f32 / 255.0;
@@ -593,7 +600,7 @@ pub fn receive(
                 d.game.driving = body;
             }
             Packet::Reset { seed } => {
-                water.cells.clear();
+                water.levels.clear();
                 water.dirty.clear();
                 tornadoes.0.clear();
                 weather.rain = 0.0;

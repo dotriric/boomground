@@ -2588,8 +2588,13 @@ fn handle_join(server: &mut ServerState, id: u16, name: String, token: u64, vers
     for chunk in fires.chunks(4000) {
         stream.push(Packet::Fire { add: chunk.to_vec(), remove: Vec::new() }.encode());
     }
-    let water: Vec<[u16; 3]> = server.water.visible().iter().map(|c| [c.x as u16, c.y as u16, c.z as u16]).collect();
-    for chunk in water.chunks(8000) {
+    let water: Vec<[u16; 4]> = server
+        .water
+        .visible()
+        .iter()
+        .map(|(c, lvl)| [c.x as u16, c.y as u16, c.z as u16, *lvl as u16])
+        .collect();
+    for chunk in water.chunks(6000) {
         stream.push(Packet::Water { add: chunk.to_vec(), remove: Vec::new() }.encode());
     }
     stream.push(Packet::Weather { rain: server.rain_sent }.encode());
@@ -3177,22 +3182,33 @@ fn after_destruction(server: &mut ServerState, cells: &[IVec3]) {
     }
 }
 
-/// Envoie aux clients les cellules d'eau apparues / disparues.
+/// Envoie aux clients les cellules d'eau apparues `(cellule, niveau)` /
+/// disparues.
 fn broadcast_water(server: &mut ServerState) {
     let (add, remove) = server.water.visible_delta();
     send_water(server, add, remove);
 }
 
-fn send_water(server: &mut ServerState, add: Vec<IVec3>, remove: Vec<IVec3>) {
+fn send_water(server: &mut ServerState, add: Vec<(IVec3, u8)>, remove: Vec<IVec3>) {
     if add.is_empty() && remove.is_empty() {
         return;
     }
-    let pack = |v: &[IVec3]| v.iter().map(|c| [c.x as u16, c.y as u16, c.z as u16]).collect::<Vec<_>>();
-    for chunk in add.chunks(8000) {
+    // `(cellule, niveau)` : le niveau sert à afficher la surface à hauteur.
+    let pack = |v: &[(IVec3, u8)]| {
+        v.iter()
+            .map(|(c, lvl)| [c.x as u16, c.y as u16, c.z as u16, *lvl as u16])
+            .collect::<Vec<_>>()
+    };
+    let pack_rm = |v: &[IVec3]| {
+        v.iter()
+            .map(|c| [c.x as u16, c.y as u16, c.z as u16])
+            .collect::<Vec<_>>()
+    };
+    for chunk in add.chunks(6000) {
         broadcast(server, None, &Packet::Water { add: pack(chunk), remove: Vec::new() });
     }
     for chunk in remove.chunks(8000) {
-        broadcast(server, None, &Packet::Water { add: Vec::new(), remove: pack(chunk) });
+        broadcast(server, None, &Packet::Water { add: Vec::new(), remove: pack_rm(chunk) });
     }
 }
 

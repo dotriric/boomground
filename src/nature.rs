@@ -26,31 +26,215 @@ pub struct Tornadoes(pub Vec<(u32, Vec3, f32)>);
 #[derive(Resource, Default)]
 pub struct PlayerPush(pub Vec3);
 
-/// Vue « voxels » de l'eau, pour réutiliser le maillage des voxels.
+/// Vue de l'eau pour son maillage : niveaux (1-8) + grille du monde.
 struct WaterView<'a> {
-    water: &'a WaterMirror,
+    levels: &'a HashMap<IVec3, u8>,
     world: &'a VoxelWorld,
 }
 
-impl crate::vmesh::Cells for WaterView<'_> {
-    fn dims(&self) -> IVec3 {
-        self.world.dims
+impl WaterView<'_> {
+    #[inline]
+    /// Niveau affiché de la cellule (aucun si pas d'eau).
+    fn lvl(&self, c: IVec3) -> Option<u8> {
+        self.levels.get(&c).copied()
     }
-    fn origin(&self) -> Vec3 {
-        self.world.origin
-    }
-    fn solid(&self, c: IVec3) -> bool {
-        self.water.contains(c) && !self.world.is_solid(c)
-    }
-    fn mat(&self, _c: IVec3) -> u8 {
-        WATER_MAT
+
+    #[inline]
+    /// La grille du monde bloque-t-elle la cellule ?
+    fn solid_world(&self, c: IVec3) -> bool {
+        self.world.is_solid(c)
     }
 }
 
 #[derive(Component)]
 pub struct WaterMesh;
 
-/// Maillages de l'eau, par morceau (translucides).
+/// Maillage d'un morceau d'eau, à hauteur partielle : la surface d'une
+/// cellule suit son niveau (`niveau / 8` de la cellule), les côtés ne
+/// montent qu'à cette hauteur — fini les flaques rendues comme des cubes
+/// pleins et les vagues creuses. Avant, l'eau passait par le maillage voxel
+/// générique, qui ne connaissait que des cellules pleines.
+///
+/// Pas de faces internes entre deux cellules d'eau, même de niveaux
+/// différents (une différence de niveau fait un gradin, couvert par les
+/// surfaces de part et d'autre). Fusion gloutonne des surfaces coplanaires
+/// de même niveau : une nappe plate reste un quad, pas un quad par cellule.
+fn build_water(view: &WaterView, corner: IVec3) -> Mesh {
+    use std::collections::{BTreeMap, HashSet};
+
+    const CHUNK: i32 = crate::vmesh::CHUNK;
+    let color = crate::world::palette_linear(WATER_MAT);
+
+    // Faces visibles, groupées par plan (couple `plan, niveau` pour les
+    // surfaces et côtés) : ensembles de cellules locales (x, z) ou (x, y).
+    let mut tops: BTreeMap<(i32, u8), HashSet<(i32, i32)>> = BTreeMap::new();
+    let mut sides: BTreeMap<(i32, u8, u8), HashSet<(i32, i32)>> = BTreeMap::new();
+    let mut bottoms: BTreeMap<i32, HashSet<(i32, i32)>> = BTreeMap::new();
+
+    for dy in 0..CHUNK {
+        for dz in 0..CHUNK {
+            for dx in 0..CHUNK {
+                let c = IVec3::new(corner.x + dx, corner.y + dy, corner.z + dz);
+                let Some(lvl) = view.lvl(c) else { continue };
+                if view.lvl(c + IVec3::Y).is_none() {
+                    tops.entry((c.y, lvl)).or_default().insert((dx, dz));
+                }
+                // Fond visible d'une cascade (air sous la cellule).
+                if view.lvl(c - IVec3::Y).is_none() && !view.solid_world(c - IVec3::Y) {
+                    bottoms.entry(dy).or_default().insert((dx, dz));
+                }
+                for (side, off) in [(2u8, IVec3::X), (3, IVec3::NEG_X), (4, IVec3::Z), (5, IVec3::NEG_Z)] {
+                    if view.lvl(c + off).is_none() && !view.solid_world(c + off) {
+                        sides.entry((dy, lvl, side)).or_default().insert((dx, dz));
+                    }
+                }
+            }
+        }
+    }
+
+    let origin = view.world.origin;
+    let point = |x: f32, y: f32, z: f32| -> [f32; 3] {
+        [
+            origin.x + x * crate::world::VOXEL,
+            origin.y + y * crate::world::VOXEL,
+            origin.z + z * crate::world::VOXEL,
+        ]
+    };
+    let mut positions: Vec<[f32; 3]> = Vec::new();
+    let mut normals: Vec<[i8; 4]> = Vec::new();
+    let mut uvs: Vec<[u16; 2]> = Vec::new();
+    let mut colors: Vec<[u8; 4]> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+
+    // Ajoute un quad ; les coins tournent dans le sens qui place la normale
+    // au-dehors (sens anti-horaire vu de face). `shade` module la couleur
+    // par orientation, comme le maillage voxel (relief même à l'ombre).
+    let mut quad = |p: [[f32; 3]; 4], n: [i8; 3], shade: f32| {
+        let base = positions.len() as u32;
+        for pos in p {
+            positions.push(pos);
+            normals.push([n[0], n[1], n[2], 0]);
+            uvs.push([0, 0]);
+            colors.push([
+                (color[0] * shade * 255.0) as u8,
+                (color[1] * shade * 255.0) as u8,
+                (color[2] * shade * 255.0) as u8,
+                255,
+            ]);
+        }
+        indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+    };
+
+    // Fusion gloutonne en rectangles (mêmes plan et niveau) : grille vue
+    // comme des lignes (premier indice) de colonnes (second).
+    fn rects(cells: &HashSet<(i32, i32)>) -> Vec<(i32, i32, i32, i32)> {
+        let mut used: HashSet<(i32, i32)> = HashSet::new();
+        let mut out = Vec::new();
+        let mut sorted: Vec<(i32, i32)> = cells.iter().copied().collect();
+        sorted.sort_unstable();
+        for &(i, j) in &sorted {
+            if used.contains(&(i, j)) {
+                continue;
+            }
+            let mut w = 1;
+            while cells.contains(&(i, j + w)) && !used.contains(&(i, j + w)) {
+                w += 1;
+            }
+            let mut h = 1;
+            loop {
+                if (0..w).any(|k| !cells.contains(&(i + h, j + k)) || used.contains(&(i + h, j + k))) {
+                    break;
+                }
+                h += 1;
+            }
+            for a in 0..h {
+                for b in 0..w {
+                    used.insert((i + a, j + b));
+                }
+            }
+            out.push((i, j, i + h, j + w));
+        }
+        out
+    }
+
+    // Surfaces : plane = `y + niveau / 8`, normale +Y.
+    for ((y, lvl), cells) in &tops {
+        let h = *lvl as f32 / crate::water::FULL as f32;
+        let y1 = *y as f32 + h;
+        for (i0, j0, i1, j1) in rects(cells) {
+            quad(
+                [
+                    point(i0 as f32, y1, j0 as f32),
+                    point(i0 as f32, y1, j1 as f32),
+                    point(i1 as f32, y1, j1 as f32),
+                    point(i1 as f32, y1, j0 as f32),
+                ],
+                [0, 127, 0],
+                1.0,
+            );
+        }
+    }
+    // Côtés : du fond de la cellule à sa surface.
+    for ((dy, lvl, side), cells) in &sides {
+        let h = *lvl as f32 / crate::water::FULL as f32;
+        let y0 = (corner.y + dy) as f32;
+        let y1 = y0 + h;
+        for (i0, j0, i1, j1) in rects(cells) {
+            let p = match side {
+                // +X / -X : (x fixe, z, y)
+                2 => [
+                    point(i1 as f32, y0, j0 as f32),
+                    point(i1 as f32, y1, j0 as f32),
+                    point(i1 as f32, y1, j1 as f32),
+                    point(i1 as f32, y0, j1 as f32),
+                ],
+                3 => [
+                    point(i0 as f32, y0, j1 as f32),
+                    point(i0 as f32, y1, j1 as f32),
+                    point(i0 as f32, y1, j0 as f32),
+                    point(i0 as f32, y0, j0 as f32),
+                ],
+                // +Z / -Z : (x, y, z fixe)
+                4 => [
+                    point(i0 as f32, y0, j1 as f32),
+                    point(i1 as f32, y0, j1 as f32),
+                    point(i1 as f32, y1, j1 as f32),
+                    point(i0 as f32, y1, j1 as f32),
+                ],
+                _ => [
+                    point(i1 as f32, y0, j0 as f32),
+                    point(i0 as f32, y0, j0 as f32),
+                    point(i0 as f32, y1, j0 as f32),
+                    point(i1 as f32, y1, j0 as f32),
+                ],
+            };
+            // Normale du côté : ±X ou ±Z selon `side`.
+            let n = match side {
+                2 => [127, 0, 0],
+                3 => [-127, 0, 0],
+                4 => [0, 0, 127],
+                _ => [0, 0, -127],
+            };
+            quad(p, n, 0.8);
+        }
+    }
+    for (dy, cells) in &bottoms {
+        let y0 = (corner.y + dy) as f32;
+        for (i0, j0, i1, j1) in rects(cells) {
+            quad(
+                [
+                    point(i0 as f32, y0, j0 as f32),
+                    point(i1 as f32, y0, j0 as f32),
+                    point(i1 as f32, y0, j1 as f32),
+                    point(i0 as f32, y0, j1 as f32),
+                ],
+                [0, -127, 0],
+                0.55,
+            );
+        }
+    }
+    crate::vmesh::quads_mesh(positions, normals, uvs, colors, indices)
+}
 pub fn water_meshes(
     mut commands: Commands,
     mut water: ResMut<WaterMirror>,
@@ -85,8 +269,11 @@ pub fn water_meshes(
         water.dirty.remove(k);
     }
     for key in keys {
-        let view = WaterView { water: &water, world: &world };
-        let mesh = crate::vmesh::build_pass(&view, key * crate::vmesh::CHUNK, 0);
+        let view = WaterView {
+            levels: &water.levels,
+            world: &world,
+        };
+        let mesh = build_water(&view, key * crate::vmesh::CHUNK);
         if let Some(e) = shown.remove(&key) {
             commands.entity(e).despawn();
         }
@@ -245,5 +432,99 @@ pub fn tornadoes(
         let target = *pos + Vec3::new(a.cos() * r, height, a.sin() * r);
         t.translation = t.translation.lerp(target, 0.35);
         t.scale = Vec3::splat(1.2 + f.h * 3.5);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::water::FULL;
+
+    /// Écrivez une cellule, lisez la hauteur de la surface.
+    fn top_y(mesh: &Mesh) -> Vec<f32> {
+        let Some(bevy::mesh::VertexAttributeValues::Float32x3(pos)) = mesh.attribute(Mesh::ATTRIBUTE_POSITION) else {
+            return Vec::new();
+        };
+        // Les sommets les plus hauts sont les surfaces (les fonds sont en
+        // bas de cellule) : on renvoie les y > toute la moitié.
+        let mut ys: Vec<f32> = pos.iter().map(|p| p[1]).collect();
+        ys.sort_by(|a, b| b.total_cmp(a));
+        ys.dedup();
+        ys
+    }
+
+    /// La surface d'une cellule suit son niveau : 4/8 = mi-hauteur.
+    #[test]
+    fn water_top_follows_the_level() {
+        let world = VoxelWorld::new();
+        let mut levels: HashMap<IVec3, u8> = HashMap::new();
+        levels.insert(IVec3::new(2, crate::map::GROUND + 1, 2), 4);
+        let vw = WaterView { levels: &levels, world: &world };
+        let mesh = build_water(&vw, IVec3::new(0, crate::map::GROUND, 0));
+        let top = top_y(&mesh);
+        let expected = ((crate::map::GROUND + 1) as f32 + 0.5) * crate::world::VOXEL;
+        assert!(
+            top.iter().any(|y| (y - expected).abs() < 1e-4),
+            "surface attendue à {expected}, obtenue {top:?}"
+        );
+        assert!(top.first().is_some_and(|y| *y >= expected - 1e-4));
+    }
+
+    /// Niveau plein : surface au plafond de la cellule.
+    #[test]
+    fn full_cell_tops_at_the_ceiling() {
+        let world = VoxelWorld::new();
+        let mut levels: HashMap<IVec3, u8> = HashMap::new();
+        levels.insert(IVec3::new(2, crate::map::GROUND + 1, 2), FULL);
+        let vw = WaterView { levels: &levels, world: &world };
+        let mesh = build_water(&vw, IVec3::new(0, crate::map::GROUND, 0));
+        let expected = (crate::map::GROUND + 2) as f32 * crate::world::VOXEL;
+        assert!(top_y(&mesh).iter().any(|y| (y - expected).abs() < 1e-4));
+    }
+
+    /// Deux cellules de même niveau côte à côte : une seule surface.
+    #[test]
+    fn flat_water_is_merged() {
+        let world = VoxelWorld::new();
+        let mut levels: HashMap<IVec3, u8> = HashMap::new();
+        for x in 0..8 {
+            levels.insert(IVec3::new(x, crate::map::GROUND + 1, 2), 7);
+        }
+        let vw = WaterView { levels: &levels, world: &world };
+        let mesh = build_water(&vw, IVec3::new(0, crate::map::GROUND, 0));
+        // 1 surface + 4 côtés + 1 fond = 6 quads.
+        assert_eq!(mesh.count_vertices(), 6 * 4, "surface + côtés, fond");
+    }
+
+    /// Pas de face entre deux niveaux d'eau différents : les surfaces font
+    /// le gradin.
+    #[test]
+    fn internal_water_faces_are_absent() {
+        let world = VoxelWorld::new();
+        let mut levels: HashMap<IVec3, u8> = HashMap::new();
+        levels.insert(IVec3::new(2, crate::map::GROUND + 1, 2), 8);
+        levels.insert(IVec3::new(3, crate::map::GROUND + 1, 2), 3);
+        let vw = WaterView { levels: &levels, world: &world };
+        let mesh = build_water(&vw, IVec3::new(0, crate::map::GROUND, 0));
+        // 2 surfaces + 6 côtés (les faces internes vers l'autre eau
+        // n'existent pas) + 1 fond = 9 quads.
+        assert_eq!(mesh.count_vertices(), 9 * 4);
+    }
+
+    /// Un changement de niveau seul (nappe qui monte / s'évapore) est bien
+    /// annoncé comme une mise à jour.
+    #[test]
+    fn level_change_is_broadcast() {
+        let mut w = crate::water::Water::default();
+        w.add_source(IVec3::new(5, crate::map::GROUND, 5), 8, 60.0);
+        w.step(&world_stub(), 1.0);
+        let (added, _) = w.visible_delta();
+        assert!(!added.is_empty());
+        // Tout est déjà signalé : rien de nouveau.
+        assert_eq!(w.visible_delta().0.len(), 0);
+    }
+
+    fn world_stub() -> VoxelWorld {
+        VoxelWorld::default()
     }
 }
