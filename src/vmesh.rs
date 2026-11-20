@@ -61,10 +61,36 @@ impl ChunkEntities {
 
 /// Attributs compacts : 24 octets par sommet au lieu de 48. Les identifiants
 /// et noms sont ceux des attributs standard, seul le format change.
-const NORMAL_S8: MeshVertexAttribute =
+pub const NORMAL_S8: MeshVertexAttribute =
     MeshVertexAttribute::new("Vertex_Normal", 1, VertexFormat::Snorm8x4);
-const UV_U16: MeshVertexAttribute = MeshVertexAttribute::new("Vertex_Uv", 2, VertexFormat::Unorm16x2);
-const COLOR_U8: MeshVertexAttribute = MeshVertexAttribute::new("Vertex_Color", 5, VertexFormat::Unorm8x4);
+pub const UV_U16: MeshVertexAttribute = MeshVertexAttribute::new("Vertex_Uv", 2, VertexFormat::Unorm16x2);
+pub const COLOR_U8: MeshVertexAttribute = MeshVertexAttribute::new("Vertex_Color", 5, VertexFormat::Unorm8x4);
+
+/// Maillage compact à partir de quads déjà construits (utilisé par le
+/// maillage d'eau à hauteur partielle, voir `nature::build_water`).
+pub fn quads_mesh(
+    positions: Vec<[f32; 3]>,
+    normals: Vec<[i8; 4]>,
+    uvs: Vec<[u16; 2]>,
+    colors: Vec<[u8; 4]>,
+    indices: Vec<u32>,
+) -> Mesh {
+    let mut mesh = Mesh::new(
+        bevy::mesh::PrimitiveTopology::TriangleList,
+        bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    );
+    // Indices U16 quand ça tient (moitié de la mémoire d'indices).
+    if positions.len() <= u16::MAX as usize {
+        mesh.insert_indices(Indices::U16(indices.into_iter().map(|i| i as u16).collect()));
+    } else {
+        mesh.insert_indices(Indices::U32(indices));
+    }
+    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+    mesh.insert_attribute(NORMAL_S8, VertexAttributeValues::Snorm8x4(normals));
+    mesh.insert_attribute(UV_U16, VertexAttributeValues::Unorm16x2(uvs));
+    mesh.insert_attribute(COLOR_U8, VertexAttributeValues::Unorm8x4(colors));
+    mesh
+}
 /// Les UV sont stockés divisés par cette valeur (`uv_transform` du matériau
 /// la compense).
 pub const UV_SCALE: f32 = 64.0;
@@ -345,27 +371,7 @@ pub fn build_pass(world: &impl Cells, chunk_corner: IVec3, pass: u8) -> Mesh {
 
     // Pas de copie côté processeur : le maillage ne vit que sur la carte
     // graphique (économie de mémoire vive).
-    let mut mesh = Mesh::new(
-        bevy::mesh::PrimitiveTopology::TriangleList,
-        bevy::asset::RenderAssetUsages::RENDER_WORLD,
-    );
-    let vertex_count = positions.len();
-    mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-    mesh.insert_attribute(NORMAL_S8, VertexAttributeValues::Snorm8x4(normals));
-    mesh.insert_attribute(UV_U16, VertexAttributeValues::Unorm16x2(uvs));
-    mesh.insert_attribute(COLOR_U8, VertexAttributeValues::Unorm8x4(colors));
-    // Indices U16 quand ça tient (toujours, pour un morceau de 16³) :
-    // la moitié de la mémoire d'indices en moins sur la carte graphique.
-    // U32 seulement si le maillage dépasse 65 535 sommets (cas impossible
-    // ici, gardé par prudence pour les gros corps rigides).
-    if vertex_count <= u16::MAX as usize {
-        mesh.insert_indices(Indices::U16(
-            indices.into_iter().map(|i| i as u16).collect(),
-        ));
-    } else {
-        mesh.insert_indices(Indices::U32(indices));
-    }
-    mesh
+    quads_mesh(positions, normals, uvs, colors, indices)
 }
 
 /// Coin d'une face, exprimé en unités de voxel le long de `axis`.

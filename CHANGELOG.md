@@ -31,6 +31,11 @@
   dégradée au minimum et le rendu relancé ; au second échec seulement, le
   jeu ferme — avec le motif écrit dans crash.txt et annonce dans le titre de
   la fenêtre.
+- **Eau à hauteur variable** : la surface d'une cellule d'eau suit désormais son
+  niveau (1/8 à 8/8 de la cellule) au lieu de tout rendre plein — les flaques sont
+  des films d'eau, les vagues et tsunamis progressent à leur vraie hauteur. Le
+  niveau est transmis au client (protocole v8) ; surfaces et côtés fusionnés par
+  niveau (une nappe plate reste un quad).
 - **Mémoire** : allocation VRAM compacte (`MemoryHints::MemoryUsage`),
   indices U16 quand le maillage le permet (moitié de la mémoire d'indices),
   MSAA retiré de la caméra vue en main (jusqu'à 60 Mo de VRAM en moins),
