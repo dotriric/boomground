@@ -3386,7 +3386,7 @@ fn spawn_tornado(server: &mut ServerState, near: Vec3) {
     }
     server.tornado_seq += 1;
     let a = fire_rand(server) * std::f32::consts::TAU;
-    let start = near + Vec3::new(a.cos(), 0.0, a.sin()) * 70.0;
+    let start = near + Vec3::new(a.cos(), 0.0, a.sin()) * 60.0;
     let dir = (near - start).with_y(0.0).normalize_or_zero();
     // La tornade vit au niveau de la rue : `ground_height` la faisait
     // grimper sur les toits rencontrés (et redescendre ensuite),
@@ -3396,8 +3396,8 @@ fn spawn_tornado(server: &mut ServerState, near: Vec3) {
         id: server.tornado_seq,
         pos: Vec3::new(start.x, ground, start.z),
         dir,
-        life: 70.0,
-        radius: 7.0,
+        life: 110.0,
+        radius: 12.0,
     });
 }
 
@@ -3550,7 +3550,7 @@ fn nature_tick(server: &mut ServerState, dt: f32) {
         // Trajectoire qui serpente, toujours dans la carte.
         let turn = (fire_rand(server) - 0.5) * 0.6 * step;
         t.dir = Quat::from_rotation_y(turn) * t.dir;
-        let next = t.pos + t.dir * 6.0 * step;
+        let next = t.pos + t.dir * 9.0 * step;
         let c = server.world.world_to_cell(next);
         if c.x < 8 || c.z < 8 || c.x > server.world.dims.x - 8 || c.z > server.world.dims.z - 8 {
             t.dir = -t.dir;
@@ -3561,40 +3561,55 @@ fn nature_tick(server: &mut ServerState, dt: f32) {
         }
         // Arrache ce qui est fragile autour de la base.
         let mut cells = Vec::new();
-        for _ in 0..160 {
+        // 420 tirages (au lieu de 160) sur toute la hauteur de l'entonnoir :
+        // la tornade creuse les façades au lieu d'en arracher trois vitres,
+        // et 10 % de chance de tout casser (murs, béton) hors socle.
+        for _ in 0..520 {
             let a = fire_rand(server) * std::f32::consts::TAU;
             let r = fire_rand(server).sqrt() * t.radius;
-            let y = fire_rand(server) * 16.0;
+            let y = fire_rand(server) * 26.0;
             let p = t.pos + Vec3::new(a.cos() * r, y, a.sin() * r);
             let cell = server.world.world_to_cell(p);
             if server.world.is_solid(cell) && cell.y > crate::map::GROUND - 1 {
                 let m = server.world.material(cell);
-                if (weak(m) || (fire_rand(server) < 0.04 && m != crate::world::mat::BEDROCK)) && !cells.contains(&cell) {
-                    cells.push(cell);
+                if weak(m) || (fire_rand(server) < 0.15 && m != crate::world::mat::BEDROCK) {
+                    // La colonne au-dessus du point touché part avec : le
+                    // vent creuse des entailles verticales dans une façade,
+                    // pas des trous de balle.
+                    for dy in 0..6 {
+                        let c2 = cell + IVec3::Y * dy;
+                        if !server.world.is_solid(c2) {
+                            break;
+                        }
+                        if !cells.contains(&c2) {
+                            cells.push(c2);
+                        }
+                    }
                 }
             }
         }
         let (pos, radius) = (t.pos, t.radius);
         if !cells.is_empty() {
-            destroy_cells(server, cells, pos, Vec3::Y * 12.0);
+            destroy_cells(server, cells, pos, Vec3::Y * 22.0);
         }
-        server.sim.apply_wind(pos, radius * 1.8, step);
+        server.sim.apply_wind(pos, radius * 2.4, step);
         // Joueurs : aspirés, soulevés, projetés.
         let ids: Vec<u16> = server.clients.keys().copied().collect();
         for id in ids {
             let Some(c) = server.clients.get(&id) else { continue };
             let d = Vec3::new(c.pos.x - pos.x, 0.0, c.pos.z - pos.z);
             let dist = d.length();
-            if dist > radius * 2.2 || c.dead_until.is_some() || c.driving.is_some() {
+            if dist > radius * 2.6 || c.dead_until.is_some() || c.driving.is_some() {
                 continue;
             }
-            let f = 1.0 - dist / (radius * 2.2);
+            let f = 1.0 - dist / (radius * 2.6);
             let out = d / dist.max(0.3);
             let tangent = Vec3::new(-out.z, 0.0, out.x);
             // Même courant que pour les débris : on tourne autour, aspiré
-            // vers l'anneau, soulevé (plus fort près du cœur).
-            let ring = radius * 0.5;
-            let dv = (tangent * 14.0 + out * (ring - dist) * 1.5 + Vec3::Y * (10.0 + 8.0 * f)) * f * step;
+            // vers l'anneau, soulevé (plus fort près du cœur). De quoi
+            // décoller un joueur du sol et le jeter dans une façade.
+            let ring = radius * 0.45;
+            let dv = (tangent * 26.0 + out * (ring - dist) * 2.4 + Vec3::Y * (16.0 + 14.0 * f)) * f * step;
             if let Some(c) = server.clients.get_mut(&id) {
                 c.grace_until = Instant::now() + Duration::from_secs(4);
             }
