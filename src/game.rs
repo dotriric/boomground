@@ -480,6 +480,8 @@ pub struct GameState {
     pub typing: bool,
     /// Corps rigide du véhicule conduit (0 = à pied).
     pub driving: u32,
+    /// Siège : 0 = conducteur, 1 = passager.
+    pub seat: u8,
 }
 
 impl Default for GameState {
@@ -511,6 +513,7 @@ impl Default for GameState {
             last_in_cat: [0, 5, 7, 10, 14, 18],
             typing: false,
             driving: 0,
+            seat: 0,
         };
         s.reset_inventory();
         s
@@ -784,6 +787,22 @@ fn default_name() -> String {
 }
 
 impl Settings {
+    /// Distance d'affichage **réellement utilisée** : le réglage peut
+    /// demander 600 m, mais au-delà d'un certain rayon le nombre de
+    /// morceaux vivants explose (surf ace = π r² : 600 m ≈ 80 000 meshes
+    /// sur une grande carte, et même un RTX plie). Le brouillard suit la
+    /// distance effective : ce qui n'est plus dessiné se fond dans la
+    /// brume au lieu de laisser un trou dans l'horizon.
+    pub fn effective_view_distance(&self) -> f32 {
+        let cap = match self.quality {
+            0 => 140.0,
+            1 => 180.0,
+            2 => 210.0,
+            _ => 240.0,
+        };
+        self.view_distance.min(cap)
+    }
+
     pub fn clamp(&mut self) {
         self.sensitivity = self.sensitivity.clamp(0.0005, 0.01);
         self.volume = self.volume.clamp(0.0, 1.0);

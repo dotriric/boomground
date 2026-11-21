@@ -355,6 +355,8 @@ pub fn move_player(
     mut query: Query<(&mut Transform, &mut Body), With<Player>>,
     mut heads: Query<&mut Transform, (With<Head>, Without<Player>)>,
     mut blocks: Query<(&Transform, &mut Chunk), (Without<Player>, Without<Head>)>,
+    netbodies: Query<&crate::net::mirror::NetBody, ()>,
+    mirror: Res<crate::net::mirror::Mirror>,
     water: Res<crate::water::WaterMirror>,
     mut push: ResMut<crate::nature::PlayerPush>,
 ) {
@@ -478,6 +480,30 @@ pub fn move_player(
         if t.translation.distance_squared(center) < 25.0 {
             boxes.push(rubble::aabb(t, &chunk));
         }
+    }
+    // Corps rigides proches (voitures, immeubles effondrés) — sans eux, on
+    // traversait les voitures à pied dès qu'elles avaient perdu leurs
+    // voxels. Boîte englobante de la grille tournée ; le véhicule conduit
+    // est exclu (on est dedans).
+    for (id, half_g) in mirror.body_sizes.iter() {
+        if *id == game.driving {
+            continue;
+        }
+        let Some(e) = mirror.body_entity(*id) else { continue };
+        let Ok(b) = netbodies.get(e) else { continue };
+        if b.fresh {
+            continue;
+        }
+        // Centre de la grille, repère monde.
+        let c = b.pos + b.rot * (*half_g - b.com);
+        if c.distance_squared(center) > 3600.0 {
+            continue;
+        }
+        let m = Mat3::from_quat(b.rot);
+        let he = (m * Vec3::new(half_g.x, 0.0, 0.0)).abs()
+            + (m * Vec3::new(0.0, half_g.y, 0.0)).abs()
+            + (m * Vec3::new(0.0, 0.0, half_g.z)).abs();
+        boxes.push((c - he, c + he));
     }
 
     // Coincé dans un voxel (porte, régénération, gravats posés) : on prend

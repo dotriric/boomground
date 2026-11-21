@@ -475,7 +475,10 @@ pub fn refresh_chunks(
         .unwrap_or(Vec3::ZERO);
     let origin = world.origin;
     let center_of = |k: IVec3| origin + (k.as_vec3() + 0.5) * CHUNK as f32 * VOXEL;
-    let radius = settings.view_distance + 24.0;
+    // Rayon effectif (le réglage brut peut être bien plus grand : voir
+        // `Settings::effective_view_distance` — avant, 600 m chargeaient
+        // des dizaines de milliers de morceaux sur une grande carte).
+        let radius = settings.effective_view_distance() + 24.0;
     let half_diag = CHUNK as f32 * VOXEL * 0.87;
 
     // Balayage : ce qui entre à portée est mis en file, ce qui sort est

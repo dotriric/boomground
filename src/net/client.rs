@@ -602,8 +602,9 @@ pub fn receive(
                     voice_in.push((from, data));
                 }
             }
-            Packet::Driving { body } => {
+            Packet::Driving { body, seat } => {
                 d.game.driving = body;
+                d.game.seat = seat;
             }
             Packet::Reset { seed } => {
                 water.levels.clear();
@@ -755,7 +756,13 @@ pub fn receive(
                 if let Some(door) = d.world.doors.get_mut(index) {
                     door.is_open = open;
                     let at = d.world.doors[index].center(&d.world);
-                    crate::fx::play_at(&mut d.commands, &d.bank, crate::fx::SfxKind::Door, 0.8, at);
+                    // Le grincement est joué en 2D : la porte est toujours
+                    // à portée de bras, et la spatialisation crachotait
+                    // dès qu'on tournait la tête pendant le grincement —
+                    // le son sautait d'une oreille à l'autre. Le volume
+                    // garde le sens de la distance.
+                    let vol = (1.0 - camera_pos.distance(at) / 26.0).clamp(0.15, 1.0) * 0.8;
+                    crate::fx::play(&mut d.commands, &d.bank, crate::fx::SfxKind::Door, vol);
                 }
             }
             Packet::Hurt { hp, from } => {

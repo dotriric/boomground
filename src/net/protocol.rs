@@ -19,7 +19,7 @@ pub const DEFAULT_PORT: u16 = 28431;
 pub const DISCOVERY_PORT: u16 = 28432;
 /// Version du protocole : deux versions différentes refusent de jouer
 /// ensemble (message clair plutôt que des paquets incompréhensibles).
-pub const PROTOCOL_VERSION: u16 = 8;
+pub const PROTOCOL_VERSION: u16 = 9;
 /// Nombre maximal de joueurs dans une partie.
 pub const MAX_PLAYERS: usize = 16;
 
@@ -187,7 +187,7 @@ pub enum Packet {
     /// Client → serveur : quitter le véhicule.
     Exit,
     /// Serveur → client : corps conduit (0 = aucun).
-    Driving { body: u32 },
+    Driving { body: u32, seat: u8 },
 }
 
 /// Un bloc de gravats annoncé aux clients.
@@ -616,9 +616,10 @@ impl Packet {
                 w.u16(*car);
             }
             Packet::Exit => w.u8(44),
-            Packet::Driving { body } => {
+            Packet::Driving { body, seat } => {
                 w.u8(45);
                 w.u32(*body);
+                w.u8(*seat);
             }
             Packet::Fire { add, remove } => {
                 w.u8(36);
@@ -912,7 +913,7 @@ impl Packet {
             },
             43 => Packet::Enter { car: cur.u16()? },
             44 => Packet::Exit,
-            45 => Packet::Driving { body: cur.u32()? },
+            45 => { let body = cur.u32()?; let seat = cur.u8()?; Packet::Driving { body, seat } },
             36 => {
                 let mut lists: [Vec<[u16; 3]>; 2] = [Vec::new(), Vec::new()];
                 for list in lists.iter_mut() {
@@ -1161,7 +1162,7 @@ mod tests {
             Packet::Drive { throttle: -1, steer: 1, brake: true },
             Packet::Enter { car: 4 },
             Packet::Exit,
-            Packet::Driving { body: 77 },
+            Packet::Driving { body: 77, seat: 0 },
             Packet::Refused { reason: "pleine".into() },
             Packet::Roster {
                 host: 1,
