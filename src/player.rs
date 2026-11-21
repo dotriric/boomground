@@ -39,6 +39,9 @@ pub const HEIGHT: f32 = 1.7;
 /// Hauteur de marche franchie sans sauter : 1,5 voxel (0,6 m) plus une petite
 /// marge, pour monter les trottoirs et les escaliers d'un seul tenant.
 pub const STEP: f32 = 0.62;
+/// Accroupi (Ctrl) : la boîte de collision perd 0,7 m de haut (1,7 → 1,0)
+/// et la caméra descend de 0,5 m — on passe sous 3 blocs et on se faufile.
+const CROUCH_DROP: f32 = 0.35;
 const WALK: f32 = 5.0;
 const RUN: f32 = 8.5;
 const FLY: f32 = 16.0;
@@ -79,6 +82,8 @@ pub struct Body {
     pub land: f32,
     /// Lissage de la caméra après une marche montée.
     pub step: f32,
+    /// Accroupi (0..1, lissé) : Ctrl à pied.
+    pub crouch: f32,
 }
 
 pub fn spawn_player(mut commands: Commands, world: Res<VoxelWorld>) {
@@ -438,7 +443,14 @@ pub fn move_player(
         return;
     }
 
-    let speed = if running { RUN } else { WALK };
+    // Accroupi : Ctrl (à pied seulement — en vol, Ctrl fait descendre).
+    let want_crouch = controls && (keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight));
+    body.crouch += ((if want_crouch { 1.0 } else { 0.0 }) - body.crouch)
+        * (1.0 - (-14.0 * dt).exp());
+    // La boîte de collision se tasse : on passe sous un plafond bas, sous
+    // les tables, dans un soupirail.
+    let hh = HEIGHT * 0.5 - CROUCH_DROP * body.crouch;
+    let speed = if running { RUN } else { WALK } * (1.0 - 0.55 * body.crouch).max(0.4);
     let target = wish.normalize_or_zero() * speed;
     // Accélération : franche au sol, faible en l'air (les explosions
     // peuvent donc projeter le joueur).
@@ -473,8 +485,8 @@ pub fn move_player(
     }
 
     // Gravats proches : boîtes solides pour le joueur.
-    let half = Vec3::new(HALF_W, HEIGHT * 0.5, HALF_W);
-    let mut center = pos + Vec3::Y * HEIGHT * 0.5;
+    let half = Vec3::new(HALF_W, hh, HALF_W);
+    let mut center = pos + Vec3::Y * hh;
     let mut boxes: Vec<(Vec3, Vec3)> = Vec::new();
     for (t, chunk) in blocks.iter() {
         if t.translation.distance_squared(center) < 25.0 {
@@ -633,7 +645,7 @@ pub fn move_player(
         }
     }
 
-    pos = center - Vec3::Y * HEIGHT * 0.5;
+    pos = center - Vec3::Y * hh;
 
     // Filet de sécurité : hors de la carte, on réapparaît.
     if pos.y < -10.0 || !world.in_bounds_xz(pos) {
@@ -659,7 +671,11 @@ pub fn move_player(
         0.0
     };
     if let Ok(mut head) = heads.single_mut() {
-        head.translation.y = EYE - body.land - body.step + (body.bob * 2.0).sin().abs() * 0.04 * intensity;
+        head.translation.y = EYE
+            - CROUCH_DROP * 1.4 * body.crouch
+            - body.land
+            - body.step
+            + (body.bob * 2.0).sin().abs() * 0.04 * intensity;
         head.translation.x = body.bob.sin() * 0.02 * intensity;
     }
 }

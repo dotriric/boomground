@@ -85,8 +85,22 @@
 - **Portes amochées** : une porte trop détruite par le tsunami est
   arrachée net (plus de portes fantômes bloquant passage).
 - **Lumières élargies** : 32 lampes vivantes (au lieu de 16) dans un
-  rayon de 96 cellules autour du joueur ; le grincement de porte est
+  rayon de 120 cellules autour du joueur ; le grincement de porte est
   de nouveau spatialisé (3D), à volume réduit.
+- **Portée des lampadaires** : 48 m au lieu de 22, et 45 000 cd au lieu
+  de 12 000. La flaque s'arrêtait à deux plots ; la nuit est un peu plus
+  sombre pour que la lumière des lampes ressorte.
+- **Bunkers praticables** : la porte ne faisait que 4 cellules (1,6 m)
+  pour un joueur de 1,7 m — impossible d'entrer. Salle haute de 8
+  cellules (3,2 m), porte et escalier dégagés sur 8 cellules, marches
+  un peu plus douces.
+- **S'accroupir (Ctrl)** : la boîte de collision passe de 1,7 à 1,0 m et
+  la caméra descend — on se faufile sous les plafonds bas et on va plus
+  lentement. Ctrl continue de faire descendre en vol.
+- **Tornades violentes** : rayon 7 → 12 m, 110 s de vie au lieu de 70,
+  9 m/s au lieu de 6, 420 arrachements par pas (au lieu de 160) sur 26 m
+  de haut, 10 % de tout casser (béton compris), vent 33 % plus large, et
+  des joueurs vraiment aspirés/soulevés (il faut reculer de 30 m).
 - **Segfault pendant les orages** : le mailleur d'eau recréait des
   centaines d'entités par image pendant un tsunami (spawn/despawn en
   rafale) ; il réutilise désormais les entités existantes en

@@ -493,7 +493,7 @@ pub fn tornadoes(
             continue;
         };
         // Entonnoir : étroit en bas, large en haut, qui tourne vite.
-        let height = 34.0 * f.h;
+        let height = 44.0 * f.h;
         let r = radius * (0.25 + f.h * 1.4);
         let a = f.phase + now * (5.0 - f.h * 2.5);
         let target = *pos + Vec3::new(a.cos() * r, height, a.sin() * r);
@@ -674,7 +674,7 @@ pub fn daylight(
     for mut f in &mut fog {
         f.color = clear.0;
     }
-    ambient.brightness = 700.0 - 640.0 * night;
+    ambient.brightness = 700.0 - 665.0 * night;
     ambient.color = Color::srgb(0.72, 0.80, 0.95).mix(&Color::srgb(0.42, 0.52, 0.85), night);
 
     // La nuit tombée, les lampes proches s'allument.
@@ -686,7 +686,9 @@ pub fn daylight(
                 PointLight {
                     color: Color::srgb(1.0, 0.78, 0.5),
                     intensity: 0.0,
-                    range: 22.0,
+                    // 48 m et non 22 : la flaque s'arrêtait au milieu de la
+                    // rue et on ne voyait rien à plus de deux plots.
+                    range: 48.0,
                     ..default()
                 },
                 Transform::IDENTITY,
@@ -698,7 +700,9 @@ pub fn daylight(
         // rue (à 5 m : ~480 lux, devant un lampadaire bien réel), contre
         // 60 lux d'ambiance nocturne — la nuit tombe de la lampe, pas du
         // ciel.
-        l.intensity = if want { 12_000.0 } else { 0.0 };
+        // 45 000 cd : ~450 lux à 10 m, ~110 lux à 20 m, ~45 lux à 32 m —
+        // de quoi lire la rue d'un bout à l'autre, lampadaires en enfilade.
+        l.intensity = if want { 45_000.0 } else { 0.0 };
     }
     if !want {
         return;
@@ -716,7 +720,7 @@ pub fn daylight(
     let g = crate::map::GROUND;
     let mut best: Vec<(f32, Vec3)> = Vec::new();
     let c0 = world.world_to_cell(eye);
-    const R: i32 = 96; // ~38 m de rayon
+    const R: i32 = 120; // ~48 m de rayon (la portée des lampes)
     for dy in -8..44 {
         let y = g + dy;
         if y < 0 || y >= world.dims.y {

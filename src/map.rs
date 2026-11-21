@@ -930,12 +930,16 @@ fn bunker(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) {
     let cx = (min.x + max.x) / 2 - 6;
     // Décalé du centre (fontaine, allées en croix des parcs).
     let cz = (min.z + max.z) / 2 + 9 + rng.range(0, 3);
-    let floor = g - 11; // dessus de la dalle du sol
-    let top = floor + 6; // première cellule du plafond
+    // Salle haute de 7 cellules (2,8 m) : à 6 (2,4 m) la porte ne faisait
+    // que 4 cellules (1,6 m) et le joueur (1,7 m) ne pouvait pas entrer.
+    // 12 cellules sous terre, plafond à 5 sous la rue : la place au-dessus
+    // reste intacte et la rampe ne s'allonge pas trop.
+    let floor = g - 12; // dessus de la dalle du sol
+    let top = floor + 7; // première cellule du plafond
     let stairs = top - floor + 4;
     // L'escalier sort côté +X : il doit rester dans la parcelle et à l'air libre.
     let exit_x = cx + hw + 2 + stairs;
-    if cx - hw - 1 <= min.x || exit_x + 2 >= max.x || cz - hd - 1 <= min.z || cz + hd + 1 >= max.z {
+    if cx - hw - 1 <= min.x || exit_x >= max.x || cz - hd - 1 <= min.z || cz + hd + 1 >= max.z {
         return;
     }
     if !free(w, IVec3::new(cx + hw + 1, g, cz - 3), IVec3::new(exit_x + 2, g + 12, cz + 4)) {
@@ -964,18 +968,19 @@ fn bunker(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) {
         }
     }
     // Porte et escalier qui remonte vers +X jusqu'à la surface.
-    w.empty(IVec3::new(cx + hw + 1, floor, cz - 1), IVec3::new(cx + hw + 2, floor + 4, cz + 2));
+    w.empty(IVec3::new(cx + hw + 1, floor, cz - 1), IVec3::new(cx + hw + 2, top, cz + 2));
     for k in 0..stairs {
         let x = cx + hw + 2 + k;
         let step = floor + (k * (g - floor)) / stairs; // marche (niveau où l'on marche)
         w.fill(IVec3::new(x, floor - 1, cz - 2), IVec3::new(x + 1, step, cz + 3), CONCRETE_DARK);
-        w.empty(IVec3::new(x, step, cz - 1), IVec3::new(x + 1, (step + 5).min(g), cz + 2));
+        // 8 cellules de hauteur libre (3,2 m) au-dessus de la marche.
+        w.empty(IVec3::new(x, step, cz - 1), IVec3::new(x + 1, (step + 8).min(g), cz + 2));
         // Murets de part et d'autre, jusqu'au-dessus du sol (rambarde).
         w.fill(IVec3::new(x, step, cz - 2), IVec3::new(x + 1, g + 1, cz - 1), CONCRETE_DARK);
         w.fill(IVec3::new(x, step, cz + 2), IVec3::new(x + 1, g + 1, cz + 3), CONCRETE_DARK);
         // Plafond de la descente tant qu'on est sous terre.
-        if step + 5 < g {
-            w.fill(IVec3::new(x, step + 5, cz - 1), IVec3::new(x + 1, g, cz + 2), CONCRETE_DARK);
+        if step + 8 < g {
+            w.fill(IVec3::new(x, step + 8, cz - 1), IVec3::new(x + 1, g, cz + 2), CONCRETE_DARK);
         }
     }
     // Muret au fond de la trémie, côté bunker.
@@ -1242,8 +1247,10 @@ mod tests {
         let mut rooms = 0;
         for x in (2..w.dims.x - 2).step_by(3) {
             for z in (2..w.dims.z - 2).step_by(3) {
+                // Salle : air 12 à 5 cellules sous la rue, dalle en dessous,
+                // plafond de béton au-dessus.
                 let c = IVec3::new(x, GROUND - 9, z);
-                if !w.is_solid(c) && w.is_solid(c - IVec3::Y * 3) && w.is_solid(c + IVec3::Y * 6) {
+                if !w.is_solid(c) && w.is_solid(c - IVec3::Y * 5) && w.is_solid(c + IVec3::Y * 5) {
                     rooms += 1;
                 }
             }
