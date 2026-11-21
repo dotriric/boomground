@@ -3439,12 +3439,25 @@ fn nature_tick(server: &mut ServerState, dt: f32) {
                         server.water.add(&server.world, c, crate::water::FULL);
                     }
                 }
-                // L'arrière de la vague retombe : il ne reste qu'une
-                // inondation peu profonde, qui s'écoule.
+                // L'arrière de la vague retombe : il reste un filet peu
+                // profond dans la première cellule d'eau libre de la
+                // colonne, qui coule vers les creux et s'évapore — pas deux
+                // cellules pleines (0,8 m d'eau sur toute la ville, qui ne
+                // s'évapore JAMAIS : seules les cellules non pleines
+                // s'évaporent).
                 let back = a - t.sign * 18;
                 if (0..len).contains(&back) {
-                    for y in g + 2..g + t.height + 2 {
-                        server.water.remove(cell(back, b, y));
+                    let mut seen_bottom = false;
+                    for y in g..g + t.height + 2 {
+                        let c = cell(back, b, y);
+                        if server.water.level(c) > 0 {
+                            server.water.remove(c);
+                            if !seen_bottom {
+                                seen_bottom = true;
+                                // Film d'eau : s'évapore en ~ une minute.
+                                server.water.add(&server.world, c, 4);
+                            }
+                        }
                     }
                 }
             }
