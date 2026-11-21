@@ -4,8 +4,10 @@ Bac à sable de destruction en voxels, façon *Teardown*, écrit en Rust avec Be
 **Tout est destructible** (sauf le socle) : immeubles, vitres, voitures, arbres, routes, sol.
 Quand un pilier saute, ce qu'il portait s'écroule vraiment.
 
-> Licence : source disponible, **tous droits réservés**. Tu peux jouer, lire le code et
-> contribuer ; tu ne peux pas le copier ni le redistribuer. Voir [LICENSE](LICENSE).
+> Licence : **GNU GPL-3.0-or-later** — logiciel libre, code et ressources (voir
+> [LICENSE](LICENSE)). Le nom et le logo « BoomGround » restent réservés à
+> l'édition officielle : une version modifiée distribuée doit être renommée et ne
+> peut pas se prêter pour la version officielle. Voir [NOTICE.md](NOTICE.md).
 
 ## Télécharger et jouer
 

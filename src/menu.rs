@@ -200,6 +200,7 @@ pub struct CrosshairSwitch;
 pub struct BobSwitch;
 #[derive(Component)]
 pub struct BloomSwitch;
+
 #[derive(Component)]
 pub struct DesktopSwitch;
 #[derive(Component)]
@@ -491,10 +492,10 @@ pub fn setup(mut commands: Commands, font: Res<UiFont>, settings: Res<Settings>)
                         ("tsunami", "Tsunami"),
                         ("rain", "Pluie"),
                         ("drain", "Assécher"),
-                        ("time 8", "☀ 8 h"),
-                        ("time 13", "☀ 13 h"),
-                        ("time 20", "☾ 20 h"),
-                        ("time 0", "☾ Minuit"),
+                        ("time 8", "8 h — matin"),
+                        ("time 13", "13 h — midi"),
+                        ("time 20", "20 h — soir"),
+                        ("time 0", "Minuit"),
                     ] {
                         row.spawn((
                             MenuAction::Nature(cmd),

@@ -3,7 +3,7 @@ name = "boomground"
 version = "1.8.0"
 edition = "2021"
 description = "Destruction de voxels en bac à sable ou en mode boutique."
-license-file = "LICENSE"
+license = "GPL-3.0-or-later"
 publish = false
 
 [[bin]]

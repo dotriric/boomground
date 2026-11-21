@@ -61,6 +61,61 @@
   carte.
 - **Bac à sable** : le compte d'armes du sélecteur de mode est calculé
   (76 aujourd'hui) au lieu d'un « 13 » périmé.
+- **Re-monter dans une voiture déplacée** : le client ne cherchait
+  qu'une voiture encore garée à sa place d'origine (ses voxels) — dès
+  qu'une voiture avait roulé, F ne la trouvait plus jamais. Le client
+  repère maintenant n'importe quel corps rigide « en forme de voiture »
+  à moins de 6 m et le serveur place le joueur dans la voiture la plus
+  proche (« Aucun véhicule à portée » sinon).
+- **Hitbox des voitures par colonnes** : la collision joueur↔voiture
+  utilisait une simple boîte englobante tournée ; elle épouse
+  désormais les blocs qui restent (une voiture défoncée n'a plus la
+  hitbox de sa carrosserie d'origine).
+- **Vraie ombre du joueur** : un mannequin invisible (capsule sur une
+  couche que seule la lumière voit) remplace le disque dégradé — le
+  joueur projette une ombre nette de silhouette, haute ou basse
+  selon le soleil.
+- **Nuages volumétriques** : ~30 cumulus en spirale au-dessus de la
+  ville, opacité et teinte suivant l'orage (gris clair le jour,
+  gris-bleu la nuit) — plus de ciel bleu éclatant pendant une tornade.
+- **Skybox** : la couleur du brouillard suit exactement celle du ciel,
+  le raccord d'horizon disparaît.
+- **Pluie arrêtable** : `/rain off` (ou `/rain` pendant un orage)
+  arrête immédiatement l'averse au lieu d'attendre la fin.
+- **Portes amochées** : une porte trop détruite par le tsunami est
+  arrachée net (plus de portes fantômes bloquant passage).
+- **Lumières élargies** : 32 lampes vivantes (au lieu de 16) dans un
+  rayon de 96 cellules autour du joueur ; le grincement de porte est
+  de nouveau spatialisé (3D), à volume réduit.
+- **Segfault pendant les orages** : le mailleur d'eau recréait des
+  centaines d'entités par image pendant un tsunami (spawn/despawn en
+  rafale) ; il réutilise désormais les entités existantes en
+  échangeant leur maillage.
+- **Menu au fond noir / monde invisible au lancement** : deux causes.
+  La météo démarrait à 0 h (minuit) tant que le serveur n'avait pas
+  envoyé l'heure (ciel noir = « le void »), et le plugin de ray tracing
+  expérimental, chargé sans les extensions GPU qu'il exigeait, cassait
+  la passe opaque — toute la ville disparaissait, seuls les nuages et
+  la pluie restaient. Le départ est en plein jour (9 h 30) et le plugin
+  n'est plus chargé du tout (voir ci-dessous).
+- **Polices** : les symboles ☀/☾ des boutons d'heure ne sont pas dans
+  la police embarquée (carrés vides) — remplacés par du texte
+  (« 8 h — matin », « Minuit »…), traduits dans les quatre langues
+  comme le reste du menu.
+- **Éclairage groupé** : la liste d'indices du clustering GPU est
+  pré-réservée (131 072 indices, 8 192 tranches) **avant** l'init du
+  rendu, pour que l'allumage des 32 lampes ne corrompe plus quelques
+  images (l'ancien réglage arrivait trop tard : l'avertissement
+  « resizing the view clustering index list » sortait encore).
+- **Ray tracing : repoussé.** Bevy ne sait tracer la lumière que sur des
+  maillages « propres » (position/normale/UV/tangente non compressées,
+  indice 32 bits, un BLAS par maillage) : il aurait fallu une seconde
+  copie de chaque morceau de ville en VRAM et un décodeur par image —
+  l'inverse de ce qu'on cherche. Tenté, mesuré : image bruitée et monde
+  noir. À refaire le jour où le mailleur produira des morceaux RT.
+- **Nuages** : remontés à ~110 m (posés à 50 m, ils passaient devant la
+  caméra et voilaient la rue d'une brume laiteuse) et bien plus
+  discrets.
 
 ## 1.7.1
 

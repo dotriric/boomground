@@ -494,16 +494,33 @@ pub fn move_player(
         if b.fresh {
             continue;
         }
-        // Centre de la grille, repère monde.
-        let c = b.pos + b.rot * (*half_g - b.com);
-        if c.distance_squared(center) > 3600.0 {
-            continue;
-        }
+        let near = |c: Vec3| c.distance_squared(center) < 3600.0;
         let m = Mat3::from_quat(b.rot);
-        let he = (m * Vec3::new(half_g.x, 0.0, 0.0)).abs()
-            + (m * Vec3::new(0.0, half_g.y, 0.0)).abs()
-            + (m * Vec3::new(0.0, 0.0, half_g.z)).abs();
-        boxes.push((c - he, c + he));
+        let aabb_of = |c: Vec3, h: Vec3| {
+            let he = (m * Vec3::new(h.x, 0.0, 0.0)).abs()
+                + (m * Vec3::new(0.0, h.y, 0.0)).abs()
+                + (m * Vec3::new(0.0, 0.0, h.z)).abs();
+            (c - he, c + he)
+        };
+        // Voitures : la hitbox suit les blocs restants (une voiture
+        // défoncée garde une hitbox défoncée) ; gros corps : boîte
+        // englobante de la grille tournée.
+        let mut pushed = false;
+        if let Some(body_boxes) = mirror.body_boxes.get(id) {
+            for (bc, bh) in body_boxes {
+                let c = b.pos + b.rot * *bc;
+                if near(c) {
+                    pushed = true;
+                    boxes.push(aabb_of(c, *bh));
+                }
+            }
+        }
+        if !pushed {
+            let c = b.pos + b.rot * (*half_g - b.com);
+            if near(c) {
+                boxes.push(aabb_of(c, *half_g));
+            }
+        }
     }
 
     // Coincé dans un voxel (porte, régénération, gravats posés) : on prend
@@ -652,53 +669,47 @@ fn controls_open(game: &crate::game::GameState, shop: &crate::shop::ShopState) -
     !shop.open && game.phase == crate::game::Phase::Playing
 }
 
-/// Ombre portée du joueur : une silhouette douce projetée au sol sous ses
-/// pieds (le corps du joueur en vue subjective n'a pas de maillage, donc le
-/// soleil n'a rien à éclairer). Elle suit le sol, s'écrase et s'efface quand
-/// on s'élève ; en voiture, c'est la voiture qui porte l'ombre.
+/// Vraie ombre portée du joueur : un mannequin (capsule) sur la **couche
+/// 2**, qu'aucune caméra ne dessine (elles rendent 0 et 1) mais dont les
+/// soleils voient la silhouette → le joueur projette une vraie ombre, nette,
+/// dans l'axe du soleil, qui s'allonge au crépuscule — comme un habitant
+/// de la ville.
 #[derive(Component)]
 pub struct PlayerBlob;
 
 pub fn shadow(
     mut commands: Commands,
-    world: Res<VoxelWorld>,
     game: Res<crate::game::GameState>,
-    player: Query<&Transform, With<Player>>,
-    mut blob: Query<(&mut Transform, &mut Visibility, &MeshMaterial3d<StandardMaterial>), (With<PlayerBlob>, Without<Player>)>,
-    mut assets: ResMut<crate::world::BlobAssets>,
+    player: Query<(&Transform, &Body), With<Player>>,
+    mut blob: Query<(&mut Transform, &mut Visibility), (With<PlayerBlob>, Without<Player>)>,
+    mut cache: Local<Option<Handle<Mesh>>>,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut images: ResMut<Assets<Image>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let Ok(pt) = player.single() else { return };
-    let (mesh, mat) = assets.get(&mut meshes, &mut images, &mut materials);
+    let Ok((pt, body)) = player.single() else { return };
+    if cache.is_none() {
+        // Silhouette : capsule de la taille de la capsule de collision.
+        *cache = Some(meshes.add(
+            Capsule3d::new(HALF_W, HEIGHT - 2.0 * HALF_W).mesh().build(),
+        ));
+    }
     if blob.single().is_err() {
+        let mesh = cache.clone().unwrap();
         commands.spawn((
             PlayerBlob,
             Mesh3d(mesh),
-            MeshMaterial3d(mat),
+            MeshMaterial3d(materials.add(StandardMaterial::default())),
+            // Couche 2 : invisible à l'écran, dessinée dans les cartes
+            // d'ombres des soleils (qui rendent les couches 0, 1 et 2).
+            RenderLayers::layer(2),
             Transform::IDENTITY,
-            bevy::light::NotShadowCaster,
+            Visibility::Inherited,
         ));
         return;
     }
-    let Ok((mut t, mut vis, handle)) = blob.single_mut() else { return };
-    let on_foot = game.driving == 0 && game.alive();
-    let ground = world.ground_height(pt.translation.x, pt.translation.z);
-    let above = (pt.translation.y - ground).max(0.0);
-    const FADE: f32 = 14.0;
-    if !on_foot || above > FADE {
-        *vis = Visibility::Hidden;
-        return;
-    }
-    *vis = Visibility::Inherited;
-    let k = 1.0 - above / FADE;
-    t.translation = Vec3::new(pt.translation.x, ground + 0.02, pt.translation.z);
-    // Le plan est déjà posé à plat (normale +Y), seule l'échelle varie.
-    t.rotation = Quat::IDENTITY;
-    t.scale = Vec3::splat(0.55 + 0.25 * k);
-    // L'ombre s'atténue avec la hauteur.
-    if let Some(mut m) = materials.get_mut(&handle.0) {
-        m.base_color = Color::WHITE.with_alpha(0.1 + 0.55 * k);
-    }
+    let Ok((mut t, mut vis)) = blob.single_mut() else { return };
+    let on_foot = game.driving == 0 && game.alive() && !body.fly;
+    *vis = if on_foot { Visibility::Inherited } else { Visibility::Hidden };
+    // La silhouette suit les pieds du joueur.
+    t.translation = pt.translation + Vec3::Y * (HEIGHT * 0.5 + 0.05);
 }

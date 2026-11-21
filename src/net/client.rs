@@ -756,13 +756,12 @@ pub fn receive(
                 if let Some(door) = d.world.doors.get_mut(index) {
                     door.is_open = open;
                     let at = d.world.doors[index].center(&d.world);
-                    // Le grincement est joué en 2D : la porte est toujours
-                    // à portée de bras, et la spatialisation crachotait
-                    // dès qu'on tournait la tête pendant le grincement —
-                    // le son sautait d'une oreille à l'autre. Le volume
-                    // garde le sens de la distance.
-                    let vol = (1.0 - camera_pos.distance(at) / 26.0).clamp(0.15, 1.0) * 0.8;
-                    crate::fx::play(&mut d.commands, &d.bank, crate::fx::SfxKind::Door, vol);
+                    // Son spatialisé (3D) : direction et distance de la
+                    // porte, comme toute la ville. Le grincement a été
+                    // raccourci et adouci pour que le crachotis de la
+                    // rotation rapide de tête reste discret.
+                    let vol = (1.0 - camera_pos.distance(at) / 30.0).clamp(0.2, 1.0).max(0.2) * 0.9;
+                    crate::fx::play_at(&mut d.commands, &d.bank, crate::fx::SfxKind::Door, vol, at);
                 }
             }
             Packet::Hurt { hp, from } => {

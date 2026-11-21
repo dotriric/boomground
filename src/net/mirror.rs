@@ -51,6 +51,10 @@ pub struct Mirror {
     /// Demi-tailles des grilles des corps (mètres), pour les collisions du
     /// joueur avec les corps rigides (voitures, immeubles effondrés).
     pub body_sizes: HashMap<u32, Vec3>,
+    /// Petits corps (voitures) : boîtes de collision par colonnes — la
+    /// hitbox suit les **blocs restants**, pas la boîte englobante de la
+    /// grille. `(centre repère corps, demi-taille)` en mètres.
+    pub body_boxes: HashMap<u32, Vec<(Vec3, Vec3)>>,
     /// Flammes affichées, par voxel.
     pub fires: HashMap<IVec3, Entity>,
 }
@@ -62,6 +66,7 @@ impl Mirror {
         }
         self.poses.clear();
         self.body_sizes.clear();
+        self.body_boxes.clear();
         for (_, e) in self.bodies.drain() {
             commands.entity(e).despawn();
         }
@@ -163,6 +168,37 @@ impl Mirror {
         // Demi-taille de la grille (mètres) : sert aux collisions du joueur.
         self.body_sizes.insert(id, dims3.as_vec3() * crate::world::VOXEL * 0.5);
         let Some(grid) = BodyGrid::decode_rle(dims3, &bytes) else { return };
+        // Colonnes de voxels pleins (voitures : hitbox = blocs restants,
+        // une voiture défoncée garde une hitbox défoncée).
+        if dims3.max_element() <= 20 {
+            let v = crate::world::VOXEL;
+            let mut boxes: Vec<(Vec3, Vec3)> = Vec::new();
+            for gx in 0..dims3.x {
+                for gz in 0..dims3.z {
+                    let mut seg: Option<(i32, i32)> = None;
+                    for gy in 0..dims3.y {
+                        if grid.is_solid(IVec3::new(gx, gy, gz)) {
+                            seg = Some(match seg {
+                                None => (gy, gy),
+                                Some((lo, _)) => (lo, gy),
+                            });
+                        } else if let Some((lo, hi)) = seg.take() {
+                            boxes.push((
+                                Vec3::new((gx as f32 + 0.5) * v - com.x, (lo + hi + 1) as f32 * 0.5 * v - com.y, (gz as f32 + 0.5) * v - com.z),
+                                Vec3::new(v * 0.5, (hi - lo + 1) as f32 * v * 0.5, v * 0.5),
+                            ));
+                        }
+                    }
+                    if let Some((lo, hi)) = seg {
+                        boxes.push((
+                            Vec3::new((gx as f32 + 0.5) * v - com.x, (lo + hi + 1) as f32 * 0.5 * v - com.y, (gz as f32 + 0.5) * v - com.z),
+                            Vec3::new(v * 0.5, (hi - lo + 1) as f32 * v * 0.5, v * 0.5),
+                        ));
+                    }
+                }
+            }
+            self.body_boxes.insert(id, boxes);
+        }
 
         if let Some(old) = self.bodies.remove(&id) {
             commands.entity(old).despawn();
@@ -236,6 +272,7 @@ impl Mirror {
         self.partial.remove(&id);
         self.poses.remove(&id);
         self.body_sizes.remove(&id);
+        self.body_boxes.remove(&id);
         if let Some(e) = self.bodies.remove(&id) {
             commands.entity(e).despawn();
         }

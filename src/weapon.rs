@@ -693,6 +693,8 @@ pub fn act(
     viewmodels: Query<&ViewModel>,
     mut bombs: Query<&mut Bomb>,
     touch: Res<crate::touch::TouchState>,
+    mirror: Res<crate::net::mirror::Mirror>,
+    netbodies: Query<&crate::net::mirror::NetBody>,
     mut d: Destroyer,
 ) {
     let dt = time.delta_secs();
@@ -722,13 +724,39 @@ pub fn act(
     let interact = touch.interact || (keys.just_pressed(KeyCode::KeyF) && grabbed);
     if interact {
         // Voiture proche : on y monte (en ligne, le serveur décide).
+        // Une voiture déjà conduite a quitté sa place d'origine : le
+        // client ne peut plus la deviner par ses voxels (ils n'y sont
+        // plus) — il repère le corps rigide qui ressemble à une voiture
+        // et laisse le serveur choisir (`Enter` avec l'indice spécial).
         let car = if d.world.door_at(origin, dir, 3.6).is_none() {
-            crate::vehicle::nearest_car(&d.world, origin, 5.5)
+            match crate::vehicle::nearest_car(&d.world, origin, 5.5) {
+                Some(c) => Some(c as u16),
+                None => {
+                    let shaped = mirror
+                        .body_sizes
+                        .iter()
+                        .filter_map(|(id, half)| mirror.body_entity(*id).map(|e| (e, half)))
+                        .find_map(|(e, half)| {
+                            // Allongée sur Z (repère de la grille), pas
+                            // immense : une voiture.
+                            let car_like = half.z > half.x * 1.4 && half.z <= 4.0 && half.y <= 3.0;
+                            let near = netbodies
+                                .get(e)
+                                .ok()
+                                .filter(|b| !b.fresh)
+                                .filter(|b| b.pos.distance(origin) < 6.0)
+                                .is_some();
+                            (car_like && near).then_some(())
+                        })
+                        .is_some();
+                    shaped.then_some(u16::MAX)
+                }
+            }
         } else {
             None
         };
         if let (Some(car), true) = (car, online) {
-            d.net.send_raw(crate::net::protocol::Packet::Enter { car: car as u16 });
+            d.net.send_raw(crate::net::protocol::Packet::Enter { car });
         } else if let Some(door) = d.world.door_at(origin, dir, 3.6) {
             if online {
                 d.net.send_raw(crate::net::protocol::Packet::Interact { door: door as u16 });
