@@ -2255,6 +2255,28 @@ fn handle_enter(server: &mut ServerState, id: u16, car: u16) {
         return;
     }
     let player = c.pos;
+    // Indice spécial (u16::MAX) : « la voiture déjà formée la plus proche »
+    // — le client l'envoie quand le véhicule a quitté sa place de parking
+    // d'origine (plus aucun voxel à l'ancien emplacement pour l'identifier).
+    let car = if car == u16::MAX {
+        let mut best: Option<(u16, f32)> = None;
+        for (&ci, &b) in server.car_bodies.iter() {
+            let Some(pos) = server.sim.body(b).map(|bd| bd.pos) else { continue };
+            let d2 = pos.distance_squared(player + Vec3::Y);
+            if d2 <= 7.0 * 7.0 && best.is_none_or(|(_, bd)| d2 < bd) {
+                best = Some((ci, d2));
+            }
+        }
+        match best {
+            Some((ci, _)) => ci,
+            None => {
+                notice(server, id, "Aucun véhicule à portée.");
+                return;
+            }
+        }
+    } else {
+        car
+    };
     let Some(&min) = server.world.cars.get(car as usize) else { return };
     let body_id = match server.car_bodies.get(&car).copied() {
         Some(b) if server.sim.body(b).is_some() => {
@@ -3139,10 +3161,18 @@ fn handle_command(server: &mut ServerState, id: u16, text: &str) {
             notice(server, id, "Un tsunami arrive !");
         }
         "rain" | "pluie" => {
-            if server.rain > 0.0 {
+            // « rain » sous la pluie = arrêt immédiat (avant : la pluie
+            // redémarrait sitôt tombée, la prochaine averse était déjà
+            // programmée ; on la repousse loin).
+            let stop = matches!(arg.as_str(), "off" | "stop" | "0") || (arg.is_empty() && server.rain > 0.01);
+            if stop {
+                server.rain = 0.0;
                 server.rain_left = 0.0;
+                server.rain_next = 400.0 + fire_rand(server) * 600.0;
+                notice(server, id, "La pluie s'arrête.");
             } else {
                 server.rain_left = 180.0;
+                notice(server, id, "La pluie arrive.");
             }
         }
         "time" | "heure" => {
@@ -3247,7 +3277,9 @@ fn weak(material: u8) -> bool {
 }
 
 /// Suites d'une destruction : l'eau voisine s'engouffre, les bouches
-/// d'incendie cassées se mettent à fuir.
+/// d'incendie cassées se mettent à fuir, et les portes amochées sont
+/// arrachées net (une demi-porte pendouillant sur un mur défoncé, c'est
+/// pire qu'un mur proprement troué).
 fn after_destruction(server: &mut ServerState, cells: &[IVec3]) {
     server.water.wake_around(cells);
     let g = crate::map::GROUND;
@@ -3257,6 +3289,28 @@ fn after_destruction(server: &mut ServerState, cells: &[IVec3]) {
             server.water.add_source(c, 4, 25.0);
             leaks += 1;
         }
+    }
+    // Portes : une fois le quart de leurs voxels parti, il ne reste qu'un
+    // panneau bancal — on finit le travail.
+    let mut rip: Vec<IVec3> = Vec::new();
+    for door in server.world.doors.iter() {
+        let active: &[IVec3] = if door.is_open { &door.open } else { &door.closed };
+        let present = active.iter().filter(|&&c| server.world.is_solid(c)).count();
+        if present * 4 >= door.total * 3 {
+            continue;
+        }
+        for &c in active {
+            if server.world.is_solid(c) {
+                rip.push(c);
+            }
+        }
+    }
+    if !rip.is_empty() {
+        for &c in &rip {
+            server.world.set(c, false, 0);
+        }
+        server.water.wake_around(&rip);
+        broadcast_removed(server, &rip);
     }
 }
 

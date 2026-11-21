@@ -11,7 +11,7 @@ use crate::world::VoxelWorld;
 pub const WATER_MAT: u8 = 23;
 
 /// Météo et heure reçues du serveur.
-#[derive(Resource, Default)]
+#[derive(Resource)]
 pub struct Weather {
     /// Pluie, 0..1.
     pub rain: f32,
@@ -20,6 +20,20 @@ pub struct Weather {
     pub time_target: f32,
     /// Heure du jour affichée (lissée).
     pub day_time: f32,
+}
+
+impl Default for Weather {
+    /// Départ en plein jour (9 h 30) : sans cela le ciel restait noir —
+    /// minuit — tant que le serveur n'avait pas envoyé l'heure, ce qui
+    /// donnait un menu au fond noir et un monde invisible (« le void »)
+    /// au lancement.
+    fn default() -> Self {
+        Self {
+            rain: 0.0,
+            time_target: 9.5,
+            day_time: 9.5,
+        }
+    }
 }
 
 /// Tornades reçues du serveur : `(id, position au sol, rayon)`.
@@ -250,6 +264,7 @@ pub fn water_meshes(
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut material: Local<Option<Handle<StandardMaterial>>>,
     mut shown: Local<HashMap<IVec3, Entity>>,
+    mut existing: Query<&mut Mesh3d, With<WaterMesh>>,
 ) {
     let dbg = std::env::var("BOOM_DEBUG_WATER").is_ok();
     // Harness : une flaque client-side autour de la caméra.
@@ -318,8 +333,23 @@ pub fn water_meshes(
             world: &world,
         };
         let mesh = build_water(&view, key * crate::vmesh::CHUNK);
-        if let Some(e) = shown.remove(&key) {
-            commands.entity(e).despawn();
+        // Le maillage existe : on **réutilise l'entité** (le handle de
+        // maillage est échangé) au lieu de la supprimer et d'en recréer
+        // une. Un tsunami rebâtissait jusqu'à 7 000 entités par seconde
+        // — spawn/despawn en masse auquel le pilote Vulkan ne survit pas
+        // toujours (segfault en pleine partie).
+        if let Some(&e) = shown.get(&key) {
+            if mesh.count_vertices() == 0 {
+                shown.remove(&key);
+                commands.entity(e).despawn();
+                continue;
+            }
+            if let Ok(mut handle) = existing.get_mut(e) {
+                handle.0 = meshes.add(mesh);
+            } else {
+                shown.remove(&key);
+            }
+            continue;
         }
         if mesh.count_vertices() == 0 {
             continue;
@@ -568,7 +598,7 @@ mod tests {
 
 /// Combien de lampes éclairent vraiment (le reste garde l'émissive, que
 /// le bloom fait rayonner quand même).
-const LIVE_LAMPS: usize = 16;
+const LIVE_LAMPS: usize = 32;
 
 /// Marqueur des pointes de lumière des lampes.
 #[derive(Component)]
@@ -635,14 +665,14 @@ pub fn daylight(
     }
 
     // Ciel, brouillard, ambiance : la pluie et la nuit se combinent.
+    // Le brouillard prend EXACTEMENT la couleur du ciel : deux teintes
+    // voisines découpaient l'horizon d'un raccord net (« skybox chelou »).
     let rain = weather.rain;
     let day_sky = Color::srgb(0.55, 0.70, 0.90).mix(&Color::srgb(0.42, 0.45, 0.50), rain);
     let night_sky = Color::srgb(0.012, 0.02, 0.05).mix(&Color::srgb(0.05, 0.06, 0.10), rain);
     clear.0 = day_sky.mix(&night_sky, night);
-    let day_fog = Color::srgb(0.62, 0.74, 0.90).mix(&Color::srgb(0.45, 0.48, 0.52), rain);
-    let night_fog = Color::srgb(0.008, 0.014, 0.035).mix(&Color::srgb(0.04, 0.05, 0.09), rain);
     for mut f in &mut fog {
-        f.color = day_fog.mix(&night_fog, night);
+        f.color = clear.0;
     }
     ambient.brightness = 700.0 - 640.0 * night;
     ambient.color = Color::srgb(0.72, 0.80, 0.95).mix(&Color::srgb(0.42, 0.52, 0.85), night);
@@ -686,7 +716,7 @@ pub fn daylight(
     let g = crate::map::GROUND;
     let mut best: Vec<(f32, Vec3)> = Vec::new();
     let c0 = world.world_to_cell(eye);
-    const R: i32 = 60; // ~24 m de rayon
+    const R: i32 = 96; // ~38 m de rayon
     for dy in -8..44 {
         let y = g + dy;
         if y < 0 || y >= world.dims.y {
@@ -714,11 +744,15 @@ pub fn daylight(
     }
 }
 
-/// Nappe de nuages d'orage : suit la caméra, s'assombrit et s'épaissit
-/// avec la pluie et les tornades (avant, le ciel restait bleu éclatant au
-/// milieu d'une catastrophe).
+/// Nuages d'orage : des cumulus volumétriques au-dessus de la ville —
+/// chacun un ballon allongé qui suit la caméra de son décalage propre —
+/// dont l'opacité suit la pluie et les tornades. La nuit, ils restent un
+/// ton plus clairs que le ciel pour se détacher.
 #[derive(Component)]
-pub struct StormCloud;
+pub struct StormCloud {
+    offset: Vec3,
+    scale: Vec3,
+}
 
 pub fn clouds(
     weather: Res<Weather>,
@@ -727,41 +761,70 @@ pub fn clouds(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut cloud: Query<(&mut Transform, &mut MeshMaterial3d<StandardMaterial>), With<StormCloud>>,
-    mut cloud_mat: Local<Option<Handle<StandardMaterial>>>,
+    mut cloud: Query<(&StormCloud, &mut Transform, &MeshMaterial3d<StandardMaterial>)>,
+    mut mat: Local<Option<Handle<StandardMaterial>>>,
+    mut seed: Local<u32>,
 ) {
     let storm = weather
         .rain
         .max((tornadoes.0.len() as f32).clamp(0.0, 1.0) * 0.9)
         .clamp(0.0, 1.0);
-    if cloud.single().is_err() {
-        if cloud_mat.is_none() {
-            // Nappe immense, unie (le brouillard fond son bord dans le ciel).
-            *cloud_mat = Some(materials.add(StandardMaterial {
-                base_color: Color::srgba(0.10, 0.11, 0.14, 0.0),
+    if *seed == 0 {
+        *seed = 0xB0B5_EED5;
+    }
+    if cloud.is_empty() {
+        if mat.is_none() {
+            *mat = Some(materials.add(StandardMaterial {
+                base_color: Color::srgba(0.34, 0.36, 0.40, 0.0),
                 unlit: true,
                 alpha_mode: AlphaMode::Blend,
                 ..default()
             }));
         }
-        let mat = cloud_mat.clone().unwrap();
-        commands.spawn((
-            StormCloud,
-            Mesh3d(meshes.add(
-                Plane3d::new(Vec3::NEG_Y, Vec2::splat(240.0)).mesh().build(),
-            )),
-            MeshMaterial3d(mat),
-            Transform::from_translation(Vec3::new(0.0, 70.0, 0.0)),
-            bevy::light::NotShadowCaster,
-        ));
+        let handle = mat.clone().unwrap();
+        let mesh = meshes.add(Sphere::new(1.0).mesh().ico(2).unwrap());
+        // ~30 nuages répartis au-dessus de la caméra (rayon 150 m).
+        for i in 0..30usize {
+            *seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            let r1 = ((*seed >> 4) & 0xFF) as f32 / 255.0;
+            let r2 = ((*seed >> 12) & 0xFF) as f32 / 255.0;
+            let r3 = ((*seed >> 20) & 0xFF) as f32 / 255.0;
+            let a = i as f32 * 2.399 + r1 * 0.6; // spirale dorée
+            let rad = 40.0 + r2 * 170.0;
+            // Haut dans le ciel (bien au-dessus des toits) : posés à 50 m,
+            // les ballons passaient juste devant la caméra et voilaient
+            // toute la rue d'une brume laiteuse.
+            let offset = Vec3::new(a.cos() * rad, 105.0 + r3 * 45.0, a.sin() * rad);
+            let scale = Vec3::new(36.0 + r1 * 48.0, 9.0 + r2 * 7.0, 28.0 + r3 * 34.0);
+            commands.spawn((
+                StormCloud { offset, scale },
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(handle.clone()),
+                Transform::from_scale(scale),
+                Visibility::Inherited,
+                bevy::light::NotShadowCaster,
+            ));
+        }
         return;
     }
-    let Ok((mut tr, handle)) = cloud.single_mut() else { return };
+    let night = crate::nature::night_factor(&weather);
     let eye = camera.single().map(|c| c.translation()).unwrap_or(Vec3::ZERO);
-    tr.translation = Vec3::new(eye.x, 70.0, eye.z);
-    if let Some(mut m) = materials.get_mut(&handle.0) {
-        // Invisible plutôt qu'alpha 0 : un maillage Blend reste dans la
-        // passe transparente même vide.
-        m.base_color = Color::srgba(0.10, 0.11, 0.14, if storm > 0.02 { 0.72 * storm } else { 0.0 });
+    let alpha = 0.45 * storm;
+    for (c, mut t, handle) in &mut cloud {
+        let p = eye + c.offset;
+        t.translation = p;
+        t.scale = c.scale;
+        if let Some(mut m) = materials.get_mut(&handle.0) {
+            // Éclairage du nuage : gris clair le jour, gris bleuté la
+            // nuit — toujours assez clair pour se lire sur le ciel.
+            m.base_color = Color::srgba(0.34, 0.36, 0.40, alpha)
+                .mix(&Color::srgba(0.09, 0.10, 0.13, alpha), night);
+        }
     }
+}
+
+/// Facteur nuit 0..1 partagé (éclairage, nuages).
+pub fn night_factor(weather: &Weather) -> f32 {
+    let a = (weather.day_time - 6.0) / 24.0 * std::f32::consts::TAU;
+    (1.0 - (a.sin() * 4.0).clamp(0.0, 1.0)).clamp(0.0, 1.0)
 }

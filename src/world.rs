@@ -971,57 +971,6 @@ impl VoxelWorld {
     }
 }
 
-/// Ombre du joueur (disque dégradé), allouée à la demande.
-#[derive(Resource, Default)]
-pub struct BlobAssets {
-    inner: Option<(Handle<Mesh>, Handle<StandardMaterial>)>,
-}
-
-impl BlobAssets {
-    pub fn get(
-        &mut self,
-        meshes: &mut Assets<Mesh>,
-        images: &mut Assets<Image>,
-        materials: &mut Assets<StandardMaterial>,
-    ) -> (Handle<Mesh>, Handle<StandardMaterial>) {
-        if let Some(built) = &self.inner {
-            return built.clone();
-        }
-        use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
-        const S: u32 = 64;
-        let mut data = Vec::with_capacity((S * S * 4) as usize);
-        for y in 0..S {
-            for x in 0..S {
-                let dx = (x as f32 + 0.5) / S as f32 * 2.0 - 1.0;
-                let dy = (y as f32 + 0.5) / S as f32 * 2.0 - 1.0;
-                let d = (dx * dx + dy * dy).sqrt().min(1.0);
-                let a = (1.0 - d) * (1.0 - d);
-                data.extend_from_slice(&[0, 0, 0, (a * 200.0) as u8]);
-            }
-        }
-        let mut image = Image::new(
-            Extent3d { width: S, height: S, depth_or_array_layers: 1 },
-            TextureDimension::D2,
-            data,
-            TextureFormat::Rgba8UnormSrgb,
-            bevy::asset::RenderAssetUsages::RENDER_WORLD,
-        );
-        image.sampler = bevy::image::ImageSampler::linear();
-        let built = (
-            meshes.add(Plane3d::new(Vec3::Y, Vec2::splat(1.0)).mesh().build()),
-            materials.add(StandardMaterial {
-                base_color: Color::WHITE.with_alpha(0.5),
-                base_color_texture: Some(images.add(image)),
-                unlit: true,
-                alpha_mode: AlphaMode::Blend,
-                ..default()
-            }),
-        );
-        self.inner = Some(built.clone());
-        built
-    }
-}
-
 /// Mesh cube et palette de matériaux partagés.
 #[derive(Resource)]
 pub struct VoxelAssets {

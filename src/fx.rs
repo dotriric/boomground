@@ -352,7 +352,7 @@ fn source_for(kind: SfxKind) -> AudioSource {
         SfxKind::Heartbeat => heartbeat(),
         SfxKind::Hurt => hurt_sound(0.7),
         SfxKind::Ring => ring(2.4),
-        SfxKind::Door => door_creak(0.7),
+        SfxKind::Door => door_creak(0.45),
         SfxKind::Engine => engine(1.0),
         SfxKind::Horn => horn(0.6),
         SfxKind::Scrape => crash(0.5),

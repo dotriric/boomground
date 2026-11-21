@@ -46,11 +46,36 @@ use game::{simulating, GameState};
 use net::client::NetClient;
 use world::VoxelWorld;
 
+/// Clustering GPU : la liste d'indices par défaut (65 536) déborde dès que
+/// les 32 lampes vivantes s'allument ; Bevy l'agrandit à chaud mais
+/// corrompt l'éclairage de quelques images. La ressource n'existe qu'une
+/// fois `PbrPlugin` terminé — d'où ce plugin, enregistré après
+/// `DefaultPlugins`, dont le `finish` la relève.
+struct ClusterCapacity;
+
+impl bevy::app::Plugin for ClusterCapacity {
+    fn build(&self, _app: &mut App) {}
+
+    fn finish(&self, app: &mut App) {
+        let Some(mut settings) = app
+            .world_mut()
+            .get_resource_mut::<bevy::light::cluster::GlobalClusterSettings>()
+        else {
+            return;
+        };
+        if let Some(gpu) = settings.gpu_clustering.as_mut() {
+            gpu.initial_index_list_capacity = gpu.initial_index_list_capacity.max(131_072);
+            gpu.initial_z_slice_list_capacity = gpu.initial_z_slice_list_capacity.max(8_192);
+        }
+    }
+}
+
 /// Lance le client (fenêtre, rendu, jeu).
 pub fn run() {
     crashlog::install_panic_hook();
-    App::new()
-        .insert_resource(bevy::audio::DefaultSpatialScale(bevy::audio::SpatialScale::new(0.03)))
+    let boot_settings = game::load_settings();
+    let mut app = App::new();
+    app.insert_resource(bevy::audio::DefaultSpatialScale(bevy::audio::SpatialScale::new(0.03)))
         .insert_resource(ClearColor(Color::srgb(0.55, 0.70, 0.90)))
         // 2048 et non 4096 : la valeur doit coller au réglage par défaut
         // (`shadows: 1` => 2048, appliqué par le menu au premier tick). Un
@@ -58,14 +83,13 @@ pub fn run() {
         // pour rien — et faisait déborder les petites cartes graphiques au
         // chargement.
         .insert_resource(DirectionalLightShadowMap { size: 2048 })
-        .insert_resource(game::load_settings())
+        .insert_resource(boot_settings)
         .init_resource::<VoxelWorld>()
         .init_resource::<debris::Rng>()
         .init_resource::<net::mirror::Mirror>()
         .init_resource::<fx::ParticleDensity>()
         .init_resource::<chat::Chat>()
         .init_resource::<player::ZoomFactor>()
-        .init_resource::<world::BlobAssets>()
         .init_resource::<servers::ServerList>()
         .init_resource::<voice::VoiceInbox>()
         .init_resource::<voice::Voice>()
@@ -262,12 +286,13 @@ pub fn run() {
                 ui_scale,
             ),
         )
+        .add_plugins(ClusterCapacity)
         .add_systems(PostStartup, crashlog::show_last)
         .add_systems(Update, i18n::retranslate)
         .add_systems(Update, (nature::water_meshes, nature::rain, nature::daylight, nature::clouds, nature::tornadoes))
         .add_systems(Update, chat::update.after(ui::text_fields))
-        .add_systems(Last, (perf::detect_refresh, perf::limit).chain())
-        .run();
+        .add_systems(Last, (perf::detect_refresh, perf::limit).chain());
+    app.run();
 }
 
 /// Lumière du soleil et ambiance.
@@ -296,8 +321,11 @@ fn setup_scene(mut commands: Commands) {
         }
         .build(),
         Transform::from_translation(Vec3::new(-18.0, 30.0, 12.0)).looking_at(Vec3::ZERO, Vec3::Y),
-        // Le soleil éclaire le monde (couche 0) et les armes (couche 1).
-        RenderLayers::from_layers(&[0, 1]),
+        // Le soleil éclaire le monde (couche 0), les armes (couche 1) et
+        // le mannequin d'ombre du joueur (couche 2 : aucune caméra ne la
+        // rend en couleurs — seules les cartes d'ombres l'y voient, d'où
+        // une vraie ombre portée sans corps visible).
+        RenderLayers::from_layers(&[0, 1, 2]),
     ));
 
     // Contre-jour sans ombre : évite les faces totalement noires.
@@ -308,7 +336,7 @@ fn setup_scene(mut commands: Commands) {
             ..default()
         },
         Transform::from_translation(Vec3::new(20.0, 12.0, -18.0)).looking_at(Vec3::ZERO, Vec3::Y),
-        RenderLayers::from_layers(&[0, 1]),
+        RenderLayers::from_layers(&[0, 1, 2]),
     ));
 }
 
