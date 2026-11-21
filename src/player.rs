@@ -445,8 +445,18 @@ pub fn move_player(
 
     // Accroupi : Ctrl (à pied seulement — en vol, Ctrl fait descendre).
     let want_crouch = controls && (keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight));
-    body.crouch += ((if want_crouch { 1.0 } else { 0.0 }) - body.crouch)
-        * (1.0 - (-14.0 * dt).exp());
+    let mut target_crouch = if want_crouch { 1.0 } else { 0.0 };
+    if target_crouch < body.crouch {
+        // Se relever exige la place : sous un plafond bas (ou sous des
+        // gravats) on reste accroupi au lieu de se faire téléporter sur le
+        // toit par le décoincement.
+        let full = Vec3::new(HALF_W, HEIGHT * 0.5, HALF_W);
+        let c = pos + Vec3::Y * HEIGHT * 0.5;
+        if world.overlaps(c - full, c + full) {
+            target_crouch = body.crouch;
+        }
+    }
+    body.crouch += (target_crouch - body.crouch) * (1.0 - (-14.0 * dt).exp());
     // La boîte de collision se tasse : on passe sous un plafond bas, sous
     // les tables, dans un soupirail.
     let hh = HEIGHT * 0.5 - CROUCH_DROP * body.crouch;
@@ -540,11 +550,13 @@ pub fn move_player(
     // on montait tout droit, jusqu'au toit s'il y avait un mur au-dessus).
     if world.overlaps(center - half, center + half) {
         let mut best: Option<(f32, Vec3)> = None;
-        for dy in 0..=6 {
-            for dx in -6..=6 {
-                for dz in -6..=6 {
+        for dy in 0..=2 {
+            for dx in -8..=8 {
+                for dz in -8..=8 {
                     let off = Vec3::new(dx as f32, dy as f32, dz as f32) * 0.15;
-                    let cost = off.length_squared() + off.y * off.y;
+                    // Sortir par le côté, jamais par le toit : le vertical
+                    // coûte quatre fois plus cher.
+                    let cost = off.x * off.x + off.z * off.z + off.y * off.y * 4.0;
                     if best.is_some_and(|(b, _)| cost >= b) {
                         continue;
                     }

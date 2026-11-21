@@ -271,7 +271,6 @@ struct ServerState {
     tornadoes: Vec<Tornado>,
     tornado_seq: u32,
     tornado_timer: f32,
-    tsunami: Option<Tsunami>,
     last_autosave: Instant,
     last_idle_check: Instant,
     responder: Responder,
@@ -519,7 +518,6 @@ fn server_app(
         tornadoes: Vec::new(),
         tornado_seq: 0,
         tornado_timer: 0.0,
-        tsunami: None,
         last_autosave: now,
         last_idle_check: now,
         responder: Responder::new(),
@@ -1352,7 +1350,6 @@ fn reset_world(server: &mut ServerState, seed: u64) {
     server.fire.clear();
     server.water.clear();
     server.tornadoes.clear();
-    server.tsunami = None;
     broadcast(server, None, &Packet::Tornadoes { list: Vec::new() });
     server.car_bodies.clear();
     for c in server.clients.values_mut() {
@@ -1481,9 +1478,15 @@ fn serve(mut server: ResMut<ServerState>, time: Res<Time>) {
                     c.fall_speed = 0.0;
                 }
             }
-            Some((_, false)) if !dead => {
-                notice(&mut server, id, "Le véhicule est hors d'usage.");
-                eject_driver(&mut server, id, true);
+            Some((pos, false)) if !dead => {
+                // Épave : on reste à bord (on en sort avec F). Se faire
+                // éjecter au milieu d'une tornade n'aidait personne.
+                if let Some(c) = server.clients.get_mut(&id) {
+                    c.pos = pos - Vec3::Y * 0.4;
+                    c.last_valid = c.pos;
+                    c.airborne_since = None;
+                    c.fall_speed = 0.0;
+                }
             }
             _ => eject_driver(&mut server, id, !dead),
         }
@@ -3155,11 +3158,6 @@ fn handle_command(server: &mut ServerState, id: u16, text: &str) {
             spawn_tornado(server, at);
             notice(server, id, "Une tornade arrive !");
         }
-        "tsunami" => {
-            let at = server.clients.get(&id).map(|c| c.pos).unwrap_or(Vec3::ZERO);
-            start_tsunami(server, at);
-            notice(server, id, "Un tsunami arrive !");
-        }
         "rain" | "pluie" => {
             // « rain » sous la pluie = arrêt immédiat (avant : la pluie
             // redémarrait sitôt tombée, la prochaine averse était déjà
@@ -3245,8 +3243,21 @@ fn encode_history(history: &[[u16; 4]]) -> Vec<Vec<u8>> {
 
 
 // ---------------------------------------------------------------------------
-// Nature : eau, pluie, tornades, tsunamis
+// Nature : eau, pluie, tornades
 // ---------------------------------------------------------------------------
+
+/// Durée de vie d'une tornade (secondes) : sert aussi au fondu d'entrée.
+const TORNADO_LIFE: f32 = 110.0;
+
+/// Zone où une tornade peut vivre : la carte, avec 10 cellules de marge.
+fn tornado_bounds(world: &crate::world::VoxelWorld) -> (Vec3, Vec3) {
+    let m = 10.0 * crate::world::VOXEL;
+    let size = world.dims.as_vec3() * crate::world::VOXEL;
+    (
+        world.origin + Vec3::new(m, 0.0, m),
+        world.origin + Vec3::new(size.x - m, 0.0, size.z - m),
+    )
+}
 
 struct Tornado {
     id: u32,
@@ -3257,18 +3268,6 @@ struct Tornado {
     radius: f32,
 }
 
-struct Tsunami {
-    /// La vague avance le long de Z (sinon X).
-    along_z: bool,
-    sign: i32,
-    /// Front (indice de cellule sur l'axe d'avancée).
-    front: f32,
-    last: i32,
-    /// Couloir sur l'autre axe.
-    lo: i32,
-    hi: i32,
-    height: i32,
-}
 
 /// Matériaux arrachés par le vent ou la vague (et, rarement, le plâtre).
 fn weak(material: u8) -> bool {
@@ -3387,6 +3386,10 @@ fn spawn_tornado(server: &mut ServerState, near: Vec3) {
     server.tornado_seq += 1;
     let a = fire_rand(server) * std::f32::consts::TAU;
     let start = near + Vec3::new(a.cos(), 0.0, a.sin()) * 60.0;
+    // Une petite carte fait 100 m de côté : sans ce garde-fou la tornade
+    // naissait dehors et y restait coincée pour toute sa vie.
+    let (lo, hi) = tornado_bounds(&server.world);
+    let start = Vec3::new(start.x.clamp(lo.x, hi.x), start.y, start.z.clamp(lo.z, hi.z));
     let dir = (near - start).with_y(0.0).normalize_or_zero();
     // La tornade vit au niveau de la rue : `ground_height` la faisait
     // grimper sur les toits rencontrés (et redescendre ensuite),
@@ -3396,33 +3399,11 @@ fn spawn_tornado(server: &mut ServerState, near: Vec3) {
         id: server.tornado_seq,
         pos: Vec3::new(start.x, ground, start.z),
         dir,
-        life: 110.0,
+        life: TORNADO_LIFE,
         radius: 12.0,
     });
 }
 
-fn start_tsunami(server: &mut ServerState, near: Vec3) {
-    let d = server.world.dims;
-    let c = server.world.world_to_cell(near);
-    let along_z = fire_rand(server) < 0.5;
-    let sign = if fire_rand(server) < 0.5 { 1 } else { -1 };
-    let (len, along) = if along_z { (d.z, c.z) } else { (d.x, c.x) };
-    // Départ à ~60 m de l'hôte (depuis le bord, la vague mettait plus d'une
-    // minute à arriver sur une grande carte).
-    let front = (along - sign * 150).clamp(2, len - 3) as f32;
-    let width = if along_z { d.x } else { d.z };
-    // Toute la largeur de la carte : un vrai raz-de-marée, pas un couloir
-    // de 65 m qui épargne la ville voisine.
-    server.tsunami = Some(Tsunami {
-        along_z,
-        sign,
-        front,
-        last: front as i32,
-        lo: 2,
-        hi: width - 2,
-        height: 14,
-    });
-}
 
 fn nature_tick(server: &mut ServerState, dt: f32) {
     // --- Heure du jour : une journée complète en 10 minutes réelles ---
@@ -3459,116 +3440,41 @@ fn nature_tick(server: &mut ServerState, dt: f32) {
     let step = server.water_timer;
     server.water_timer = 0.0;
 
-    // --- Tsunami ---
-    if let Some(mut t) = server.tsunami.take() {
-        let dbg_added = std::env::var("BOOM_DEBUG_WATER").is_ok();
-        if dbg_added {
-            if let Some((id, c)) = server.clients.iter().next() {
-                eprintln!("[dbg] tsunami front={} last={} lo={} hi={} h={} host cell={:?} dims={:?}", t.front, t.last, t.lo, t.hi, t.height, server.world.world_to_cell(c.pos), server.world.dims);
-                let _ = id;
-            }
-        }
-        let d = server.world.dims;
-        let len = if t.along_z { d.z } else { d.x };
-        t.front += t.sign as f32 * 28.0 * step;
-        let now_front = t.front as i32;
-        let g = crate::map::GROUND;
-        let progress = if t.sign > 0 { now_front as f32 / len as f32 } else { 1.0 - now_front as f32 / len as f32 };
-        let h = (t.height as f32 * (1.0 - progress * 0.5)) as i32;
-        let cell = |a: i32, b: i32, y: i32| if t.along_z { IVec3::new(b, y, a) } else { IVec3::new(a, y, b) };
-        let mut weak_cells = Vec::new();
-        let mut a = t.last;
-        while a != now_front && (0..len).contains(&a) {
-            for b in t.lo..t.hi {
-                for y in g..g + h {
-                    let c = cell(a, b, y);
-                    if server.world.is_solid(c) {
-                        if weak_cells.len() < 400 && weak(server.world.material(c)) {
-                            weak_cells.push(c);
-                        }
-                    } else {
-                        if dbg_added && server.water.len() % 10_000 == 0 {
-                            eprintln!("[dbg] tsunami water cells: {}", server.water.len());
-                        }
-                        server.water.add(&server.world, c, crate::water::FULL);
-                    }
-                }
-                // L'arrière de la vague retombe : il reste un filet peu
-                // profond dans la première cellule d'eau libre de la
-                // colonne, qui coule vers les creux et s'évapore — pas deux
-                // cellules pleines (0,8 m d'eau sur toute la ville, qui ne
-                // s'évapore JAMAIS : seules les cellules non pleines
-                // s'évaporent).
-                let back = a - t.sign * 18;
-                if (0..len).contains(&back) {
-                    let mut seen_bottom = false;
-                    for y in g..g + t.height + 2 {
-                        let c = cell(back, b, y);
-                        if server.water.level(c) > 0 {
-                            server.water.remove(c);
-                            if !seen_bottom {
-                                seen_bottom = true;
-                                // Film d'eau : s'évapore en ~ une minute.
-                                server.water.add(&server.world, c, 4);
-                            }
-                        }
-                    }
-                }
-            }
-            a += t.sign;
-        }
-        t.last = now_front;
-        if !weak_cells.is_empty() {
-            let mid = server.world.cell_center(cell(now_front, (t.lo + t.hi) / 2, g + 2));
-            let push = if t.along_z { Vec3::Z } else { Vec3::X } * t.sign as f32 * 9.0 + Vec3::Y * 3.0;
-            destroy_cells(server, weak_cells, mid, push);
-        }
-        // Les joueurs pris dans la vague sont emportés.
-        let dir = if t.along_z { Vec3::Z } else { Vec3::X } * t.sign as f32;
-        let ids: Vec<u16> = server.clients.keys().copied().collect();
-        for id in ids {
-            let Some(c) = server.clients.get(&id) else { continue };
-            let p = server.world.world_to_cell(c.pos);
-            let (pa, pb) = if t.along_z { (p.z, p.x) } else { (p.x, p.z) };
-            let behind = (now_front - pa) * t.sign;
-            if (0..20).contains(&behind) && (t.lo..t.hi).contains(&pb) && p.y < g + h + 2 {
-                if let Some(c) = server.clients.get_mut(&id) {
-                    c.grace_until = Instant::now() + Duration::from_secs(3);
-                }
-                send(server, id, &Packet::Push { vel: dir * 2.5 + Vec3::Y * 0.8 });
-            }
-        }
-        if (0..len).contains(&now_front) {
-            server.tsunami = Some(t);
-        }
-    }
-
     // --- Tornades ---
     let mut list = std::mem::take(&mut server.tornadoes);
     for t in &mut list {
         t.life -= step;
+        // Fondu : la tornade naît et meurt en douceur (avant, entonnoir et
+        // destruction s'arrêtaient net d'une image à l'autre).
+        let fade_in = ((TORNADO_LIFE - t.life) / 2.5).clamp(0.0, 1.0);
+        let fade_out = (t.life / 5.0).clamp(0.0, 1.0);
+        let radius = t.radius * fade_in * fade_out;
         // Trajectoire qui serpente, toujours dans la carte.
         let turn = (fire_rand(server) - 0.5) * 0.6 * step;
         t.dir = Quat::from_rotation_y(turn) * t.dir;
         let next = t.pos + t.dir * 9.0 * step;
-        let c = server.world.world_to_cell(next);
-        if c.x < 8 || c.z < 8 || c.x > server.world.dims.x - 8 || c.z > server.world.dims.z - 8 {
-            t.dir = -t.dir;
-        } else {
-            // Toujours au ras du sol de la rue (jamais sur un toit).
-            let ground = server.world.origin.y + crate::map::GROUND as f32 * crate::world::VOXEL;
-            t.pos = Vec3::new(next.x, ground, next.z);
+        let (lo, hi) = tornado_bounds(&server.world);
+        let ground = server.world.origin.y + crate::map::GROUND as f32 * crate::world::VOXEL;
+        let nx = next.x.clamp(lo.x, hi.x);
+        let nz = next.z.clamp(lo.z, hi.z);
+        if (nx - next.x).abs() > 0.01 || (nz - next.z).abs() > 0.01 {
+            t.dir = -t.dir; // elle rebondit sur le bord au lieu d'y rester
+        }
+        t.pos = Vec3::new(nx, ground, nz);
+        let pos = t.pos;
+        if radius < 0.5 {
+            continue; // en train de naître ou de mourir
         }
         // Arrache ce qui est fragile autour de la base.
         let mut cells = Vec::new();
-        // 420 tirages (au lieu de 160) sur toute la hauteur de l'entonnoir :
-        // la tornade creuse les façades au lieu d'en arracher trois vitres,
-        // et 10 % de chance de tout casser (murs, béton) hors socle.
+        // 520 tirages sur toute la hauteur de l'entonnoir : la tornade
+        // creuse les façades au lieu d'en arracher trois vitres, et 15 % de
+        // chance de tout casser (béton compris) hors socle.
         for _ in 0..520 {
             let a = fire_rand(server) * std::f32::consts::TAU;
-            let r = fire_rand(server).sqrt() * t.radius;
-            let y = fire_rand(server) * 26.0;
-            let p = t.pos + Vec3::new(a.cos() * r, y, a.sin() * r);
+            let r = fire_rand(server).sqrt() * radius;
+            let y = fire_rand(server) * 30.0;
+            let p = pos + Vec3::new(a.cos() * r, y, a.sin() * r);
             let cell = server.world.world_to_cell(p);
             if server.world.is_solid(cell) && cell.y > crate::map::GROUND - 1 {
                 let m = server.world.material(cell);
@@ -3576,7 +3482,7 @@ fn nature_tick(server: &mut ServerState, dt: f32) {
                     // La colonne au-dessus du point touché part avec : le
                     // vent creuse des entailles verticales dans une façade,
                     // pas des trous de balle.
-                    for dy in 0..6 {
+                    for dy in 0..10 {
                         let c2 = cell + IVec3::Y * dy;
                         if !server.world.is_solid(c2) {
                             break;
@@ -3588,30 +3494,83 @@ fn nature_tick(server: &mut ServerState, dt: f32) {
                 }
             }
         }
-        let (pos, radius) = (t.pos, t.radius);
         if !cells.is_empty() {
             destroy_cells(server, cells, pos, Vec3::Y * 22.0);
         }
         server.sim.apply_wind(pos, radius * 2.4, step);
-        // Joueurs : aspirés, soulevés, projetés.
+
+        // Les voitures garées ne sont que des voxels du décor : sans ça,
+        // elles ne s'envolent que si quelqu'un est au volant. La tornade les
+        // arrache et en fait des corps rigides, qui partent dans le vent.
+        // `world.cars` est indexé par l'identifiant de voiture des clients.
+        let near_cars: Vec<usize> = {
+            let mut v: Vec<(f32, usize)> = server
+                .world
+                .cars
+                .iter()
+                .enumerate()
+                .filter_map(|(i, m)| {
+                    if server.car_bodies.contains_key(&(i as u16)) || i > u16::MAX as usize {
+                        return None;
+                    }
+                    let c = server.world.cell_center(*m + IVec3::new(2, 3, 5));
+                    let (dx, dz) = (c.x - pos.x, c.z - pos.z);
+                    let d = (dx * dx + dz * dz).sqrt();
+                    (d < radius * 1.4).then_some((d, i))
+                })
+                .collect();
+            v.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+            v.into_iter().take(2).map(|(_, i)| i).collect()
+        };
+        for i in near_cars {
+            let Some(&m) = server.world.cars.get(i) else { continue };
+            let mut cells = Vec::new();
+            for x in 0..5 {
+                for y in 0..6 {
+                    for z in 0..11 {
+                        let cell = m + IVec3::new(x, y, z);
+                        if server.world.is_solid(cell) {
+                            cells.push(cell);
+                        }
+                    }
+                }
+            }
+            if cells.len() < 40 {
+                continue;
+            }
+            for &cell in &cells {
+                server.world.set(cell, false, 0);
+            }
+            broadcast_removed(server, &cells);
+            let made = {
+                let s = &mut *server;
+                s.sim.form_vehicle(&s.world, cells)
+            };
+            if let Some(b) = made {
+                server.car_bodies.insert(i as u16, b);
+                server.events.push(SimEvent::BodyChanged(b));
+            }
+        }
+        // Les gravats des façades éventrées se réveillent et tombent.
+        server.sim.wake_near(pos, radius * 2.0, 0.5);
+
+        // Joueurs : aspirés, soulevés, projetés — plus personne ne « tient
+        // au sol » mieux qu'une voiture.
         let ids: Vec<u16> = server.clients.keys().copied().collect();
         for id in ids {
             let Some(c) = server.clients.get(&id) else { continue };
             let d = Vec3::new(c.pos.x - pos.x, 0.0, c.pos.z - pos.z);
             let dist = d.length();
-            if dist > radius * 2.6 || c.dead_until.is_some() || c.driving.is_some() {
+            if dist > radius * 2.8 || c.dead_until.is_some() || c.driving.is_some() {
                 continue;
             }
-            let f = 1.0 - dist / (radius * 2.6);
+            let f = 1.0 - dist / (radius * 2.8);
             let out = d / dist.max(0.3);
             let tangent = Vec3::new(-out.z, 0.0, out.x);
-            // Même courant que pour les débris : on tourne autour, aspiré
-            // vers l'anneau, soulevé (plus fort près du cœur). De quoi
-            // décoller un joueur du sol et le jeter dans une façade.
             let ring = radius * 0.45;
-            let dv = (tangent * 26.0 + out * (ring - dist) * 2.4 + Vec3::Y * (16.0 + 14.0 * f)) * f * step;
+            let dv = (tangent * 34.0 + out * (ring - dist) * 3.0 + Vec3::Y * (20.0 + 18.0 * f)) * f * step;
             if let Some(c) = server.clients.get_mut(&id) {
-                c.grace_until = Instant::now() + Duration::from_secs(4);
+                c.grace_until = Instant::now() + Duration::from_secs(5);
             }
             send(server, id, &Packet::Push { vel: dv });
         }
