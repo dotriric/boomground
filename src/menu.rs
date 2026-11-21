@@ -1888,10 +1888,11 @@ pub fn settings_panel(
     mut suns: Query<&mut DirectionalLight>,
     mut shadow_map: ResMut<bevy::light::DirectionalLightShadowMap>,
     mut density: ResMut<crate::fx::ParticleDensity>,
-    // La caméra de vue en main garde son MSAA à elle (désactivé) : elle est
-    // exclue, sinon le réglage mondial lui rendait un tampon de profondeur
-    // 4× pour rien.
-    mut cameras: Query<(Entity, &mut Msaa), (With<Camera3d>, Without<crate::player::ViewModelCamera>)>,
+    // La caméra de vue en main est incluse dans le réglage : bevy impose
+    // le même modèle d'échantillons à toutes les caméras qui partagent une
+    // cible de rendu (sinon l'image est cassée — écran noir au menu, monde
+    // invisible en jeu).
+    mut cameras: Query<(Entity, &mut Msaa), With<Camera3d>>,
     world_cam: Query<Entity, With<crate::player::WorldCamera>>,
     mut commands: Commands,
     mut first: Local<bool>,
@@ -1971,7 +1972,10 @@ pub fn settings_panel(
             sun.shadow_maps_enabled = settings.shadows > 0;
         }
     }
-    let size = if settings.shadows >= 2 { 3072 } else { 2048 };
+    // 4096 plutôt que 3072 : bevy relègue les tailles qui ne sont pas des
+    // puissances de deux à la puissance supérieure — un 3072 coûte donc
+    // la place d'un 4096, mais avec le warning `bevy_light` en prime.
+    let size = if settings.shadows >= 2 { 4096 } else { 2048 };
     if shadow_map.size != size {
         shadow_map.size = size;
     }
