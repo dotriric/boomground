@@ -379,6 +379,7 @@ pub struct RainDrop;
 pub fn rain(
     time: Res<Time>,
     weather: Res<Weather>,
+    world: Res<crate::world::VoxelWorld>,
     mut commands: Commands,
     camera: Query<&GlobalTransform, With<crate::player::WorldCamera>>,
     mut drops: Query<(Entity, &mut Transform), With<RainDrop>>,
@@ -430,7 +431,10 @@ pub fn rain(
         t.translation.y -= 24.0 * dt;
         t.translation.x += 1.5 * dt;
         let rel = t.translation - eye;
-        if rel.y < -6.0 || rel.x.abs() > 22.0 || rel.z.abs() > 22.0 {
+        // Une goutte qui touche un solide (toit, auvent, pont) meurt là :
+        // avant, la pluie traversait les toits et tombait dans les pièces.
+        let wet = world.is_solid(world.world_to_cell(t.translation));
+        if wet || rel.y < -6.0 || rel.x.abs() > 22.0 || rel.z.abs() > 22.0 {
             t.translation = eye + Vec3::new(rand() * 40.0 - 20.0, 14.0 + rand() * 6.0, rand() * 40.0 - 20.0);
         }
     }
@@ -598,7 +602,7 @@ mod tests {
 
 /// Combien de lampes éclairent vraiment (le reste garde l'émissive, que
 /// le bloom fait rayonner quand même).
-const LIVE_LAMPS: usize = 32;
+const LIVE_LAMPS: usize = 40;
 
 /// Marqueur des pointes de lumière des lampes.
 #[derive(Component)]
@@ -686,9 +690,10 @@ pub fn daylight(
                 PointLight {
                     color: Color::srgb(1.0, 0.78, 0.5),
                     intensity: 0.0,
-                    // 48 m et non 22 : la flaque s'arrêtait au milieu de la
-                    // rue et on ne voyait rien à plus de deux plots.
-                    range: 48.0,
+                    // 110 m de portée et une atténuation en 1/d (au lieu de
+                    // 1/d²) : une vraie nappe qui éclaire jusqu'au bout de la
+                    // rue, pas trois mètres de trottoir.
+                    range: 110.0,
                     ..default()
                 },
                 Transform::IDENTITY,
@@ -700,9 +705,9 @@ pub fn daylight(
         // rue (à 5 m : ~480 lux, devant un lampadaire bien réel), contre
         // 60 lux d'ambiance nocturne — la nuit tombe de la lampe, pas du
         // ciel.
-        // 45 000 cd : ~450 lux à 10 m, ~110 lux à 20 m, ~45 lux à 32 m —
-        // de quoi lire la rue d'un bout à l'autre, lampadaires en enfilade.
-        l.intensity = if want { 45_000.0 } else { 0.0 };
+        // 60 000 lm pour 110 m de portée : ~230 lux à 20 m, ~55 à 40 m,
+        // ~15 à 80 m — la rue entière reste lisible, pas deux plots.
+        l.intensity = if want { 60_000.0 } else { 0.0 };
     }
     if !want {
         return;
@@ -720,8 +725,8 @@ pub fn daylight(
     let g = crate::map::GROUND;
     let mut best: Vec<(f32, Vec3)> = Vec::new();
     let c0 = world.world_to_cell(eye);
-    const R: i32 = 120; // ~48 m de rayon (la portée des lampes)
-    for dy in -8..44 {
+    const R: i32 = 170; // ~68 m de rayon (les lampes éclairent à 80 m)
+    for dy in -10..20 {
         let y = g + dy;
         if y < 0 || y >= world.dims.y {
             continue;

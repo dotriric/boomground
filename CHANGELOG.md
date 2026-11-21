@@ -97,10 +97,39 @@
 - **S'accroupir (Ctrl)** : la boîte de collision passe de 1,7 à 1,0 m et
   la caméra descend — on se faufile sous les plafonds bas et on va plus
   lentement. Ctrl continue de faire descendre en vol.
+- **Gratte-ciel** : sur les cartes de 8 pâtés et plus, deux ou trois tours
+  avalent 2×2 pâtés de maisons (4 parcelles et le carrefour) — 32 à 51 m
+  de haut, façades de verre, planchers, poteaux, retraits, héliport et
+  balises. Le monde gagne aussi en hauteur (192 cellules au lieu de 96),
+  ce qui laisse respirer les immeubles du centre.
+- **Pluie** : elle s'arrête sur les toits et les auvents au lieu de
+  traverser les bâtiments et de tomber dans les pièces.
+- **Voiture qui tirait à droite** : les bras de levier des quatre roues
+  sont symétrisés autour du centre de masse (le modèle voxel a des roues
+  rarement symétriques, et l'écart faisait tirer toutes les voitures du
+  même côté).
+- **Épave** : quand une voiture tombe sous 60 % de ses voxels, on reste à
+  bord (on en sort avec F) au lieu d'être éjecté au milieu de la rue.
+- **Voitures garées et tornade** : elles ne sont que des voxels du décor,
+  elles ne s'envolaient donc que si quelqu'un était au volant. La tornade
+  les arrache et en fait des corps rigides qui partent dans le vent.
+- **On ne « tient » plus au sol mieux qu'une voiture** : aspiration,
+  rotation et portance des joueurs doublées, rayon d'influence élargi.
+- **Tornades qui disparaissaient d'un coup** : fondu d'entrée (2,5 s) et
+  de sortie (5 s), l'entonnoir se forme et se dissipe au lieu de
+  s'évaporer entre deux images. Elles ne naissent plus hors de la carte
+  (elles y restaient coincées) et rebondissent sur les bords.
+- **Accroupi** : on ne se relève plus sous un plafond bas — le
+  décoincement téléportait le joueur sur le toit ; il sort maintenant par
+  le côté.
+- **Tsunami retiré** : la vague ne se voyait toujours pas et cassait plus
+  qu'elle n'amusait. L'eau reste (pluie, fuites, tsunamis d'arrosage
+  d'incendie, écoulement).
 - **Tornades violentes** : rayon 7 → 12 m, 110 s de vie au lieu de 70,
   9 m/s au lieu de 6, 420 arrachements par pas (au lieu de 160) sur 26 m
   de haut, 10 % de tout casser (béton compris), vent 33 % plus large, et
-  des joueurs vraiment aspirés/soulevés (il faut reculer de 30 m).
+  des joueurs vraiment aspirés/soulevés (il faut reculer de 30 m). En
+  pratique : ~9 000 blocs détruits en 9 secondes au lieu de 5.
 - **Segfault pendant les orages** : le mailleur d'eau recréait des
   centaines d'entités par image pendant un tsunami (spawn/despawn en
   rafale) ; il réutilise désormais les entités existantes en

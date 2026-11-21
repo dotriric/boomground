@@ -423,8 +423,23 @@ impl Sim {
             alive: true,
             speed: 0.0,
             // Le corps vient d'être créé sans rotation : le repère local est
-            // le repère monde translaté au centre de masse.
-            wheels: hubs.map(|h| h - body.pos),
+            // le repère monde translaté au centre de masse. Les bras de levier
+            // sont symétrisés : le modèle voxel a des roues rarement
+            // symétriques, et un écart gauche/droite faisait tirer toutes les
+            // voitures vers la droite.
+            wheels: {
+                let rel = hubs.map(|h| h - body.pos);
+                let track = ((rel[1].x - rel[0].x).abs() * 0.5).max(crate::world::VOXEL);
+                let track_r = ((rel[3].x - rel[2].x).abs() * 0.5).max(crate::world::VOXEL);
+                let front_z = (rel[0].z + rel[1].z) * 0.5;
+                let rear_z = (rel[2].z + rel[3].z) * 0.5;
+                [
+                    Vec3::new(-track, rel[0].y, front_z),
+                    Vec3::new(track, rel[1].y, front_z),
+                    Vec3::new(-track_r, rel[2].y, rear_z),
+                    Vec3::new(track_r, rel[3].y, rear_z),
+                ]
+            },
             compress: [0.0; 4],
             steer_angle: 0.0,
             spin: 0.0,

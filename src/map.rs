@@ -171,6 +171,9 @@ pub fn generate(w: &mut VoxelWorld, seed: u64) -> Vec3 {
         }
     }
 
+    // --- Gratte-ciel : les grandes cartes ont un vrai centre-ville ---
+    skyscrapers(w, &mut rng);
+
     street_props(w, &mut rng);
 
     // --- Mur d'enceinte ---
@@ -873,6 +876,112 @@ fn glass_tower(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) {
         w.fill(IVec3::new(x, bmin.y, bmax.z - 1), IVec3::new(x + 1, top, bmax.z), METAL);
         x += 6;
     }
+}
+
+/// Gratte-ciel de centre-ville : quelques tours qui avalent 2×2 pâtés de
+/// maisons (quatre parcelles et le carrefour qui les sépare) — 10 à 15
+/// étages de 3,2 m, soit 32 à 48 m, quand une maison en fait 3. Réservé aux
+/// grandes cartes : sur une petite, elles écraseraient tout.
+fn skyscrapers(w: &mut VoxelWorld, rng: &mut MapRng) {
+    let nb = w.dims.x / BLOCK;
+    if nb < 8 {
+        return;
+    }
+    let count = if nb < 14 { 1 } else { 3 };
+    let mid = nb / 2; // pâté de l'apparition : on l'épargne
+    let mut placed = 0;
+    for k in 0..6 {
+        if placed >= count {
+            break;
+        }
+        let bx = mid - 3 + (k % 2) * 4;
+        let bz = mid - 3 + (k / 2) * 4;
+        if bx < 1 || bz < 1 || bx + 2 >= nb || bz + 2 >= nb {
+            continue;
+        }
+        if (bx..=bx + 1).contains(&mid) && (bz..=bz + 1).contains(&mid) {
+            continue;
+        }
+        let margin = ROAD + WALK + 1;
+        let min = IVec3::new(bx * BLOCK + margin, GROUND, bz * BLOCK + margin);
+        let max = IVec3::new((bx + 2) * BLOCK - margin, GROUND, (bz + 2) * BLOCK - margin);
+        if skyscraper(w, rng, min, max) {
+            placed += 1;
+        }
+    }
+}
+
+/// Une tour : socle, façade de verre, planchers, poteaux, retraits, héliport.
+fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> bool {
+    let g = GROUND;
+    let storey = 8;
+    let top = (g + rng.range(10, 16) * storey).min(w.dims.y - 8);
+    if top <= g + 48 {
+        return false;
+    }
+    let inset = rng.range(4, 9);
+    let mut lo = min + IVec3::new(inset, 0, inset);
+    let mut hi = max - IVec3::new(inset, 0, inset);
+    if hi.x - lo.x < 20 || hi.z - lo.z < 20 {
+        return false;
+    }
+    // On rase les pavillons (et la rue) qui occupaient la place.
+    w.empty(
+        IVec3::new(min.x, g, min.z),
+        IVec3::new(max.x, (top + 14).min(w.dims.y), max.z),
+    );
+    w.cars.retain(|c| c.x < min.x || c.x > max.x || c.z < min.z || c.z > max.z);
+    w.doors.retain(|d| {
+        let c = d.closed.first().copied().or_else(|| d.open.first().copied());
+        !c.is_some_and(|c| (min.x..max.x).contains(&c.x) && (min.z..max.z).contains(&c.z))
+    });
+    // Parvis.
+    w.fill(
+        IVec3::new(lo.x - 3, g - 1, lo.z - 3),
+        IVec3::new(hi.x + 3, g, hi.z + 3),
+        CONCRETE,
+    );
+    let mut y = g;
+    let mut floor = 0;
+    while y < top {
+        let y1 = (y + storey).min(top);
+        // Dalle de l'étage.
+        w.fill(IVec3::new(lo.x, y, lo.z), IVec3::new(hi.x, y + 1, hi.z), CONCRETE);
+        // Plateau vide.
+        w.empty(IVec3::new(lo.x + 1, y + 1, lo.z + 1), IVec3::new(hi.x - 1, y1 - 1, hi.z - 1));
+        // Façades de verre sur les quatre côtés.
+        w.fill(IVec3::new(lo.x, y + 1, lo.z), IVec3::new(hi.x, y1 - 1, lo.z + 1), GLASS);
+        w.fill(IVec3::new(lo.x, y + 1, hi.z - 1), IVec3::new(hi.x, y1 - 1, hi.z), GLASS);
+        w.fill(IVec3::new(lo.x, y + 1, lo.z), IVec3::new(lo.x + 1, y1 - 1, hi.z), GLASS);
+        w.fill(IVec3::new(hi.x - 1, y + 1, lo.z), IVec3::new(hi.x, y1 - 1, hi.z), GLASS);
+        // Poteaux métal tous les 12 voxels, plus les quatre angles.
+        let mut x = lo.x;
+        while x < hi.x {
+            w.fill(IVec3::new(x, y, lo.z), IVec3::new(x + 1, y1, lo.z + 1), METAL);
+            w.fill(IVec3::new(x, y, hi.z - 1), IVec3::new(x + 1, y1, hi.z), METAL);
+            x += 12;
+        }
+        let mut z = lo.z;
+        while z < hi.z {
+            w.fill(IVec3::new(lo.x, y, z), IVec3::new(lo.x + 1, y1, z + 1), METAL);
+            w.fill(IVec3::new(hi.x - 1, y, z), IVec3::new(hi.x, y1, z + 1), METAL);
+            z += 12;
+        }
+        y = y1;
+        floor += 1;
+        // Retrait tous les 5 étages : une silhouette, pas une boîte.
+        if floor % 5 == 0 && hi.x - lo.x > 30 && hi.z - lo.z > 30 {
+            lo += IVec3::new(5, 0, 5);
+            hi -= IVec3::new(5, 0, 5);
+        }
+    }
+    // Toit : dalle, héliport, balises.
+    w.fill(IVec3::new(lo.x, y, lo.z), IVec3::new(hi.x, y + 2, hi.z), CONCRETE_DARK);
+    let (cx, cz) = ((lo.x + hi.x) / 2, (lo.z + hi.z) / 2);
+    w.fill(IVec3::new(cx - 4, y + 2, cz - 4), IVec3::new(cx + 4, y + 3, cz + 4), CONCRETE);
+    w.set(IVec3::new(lo.x + 1, y + 3, lo.z + 1), true, LAMP);
+    w.set(IVec3::new(hi.x - 2, y + 3, hi.z - 2), true, LAMP);
+    true
 }
 
 fn houses(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) {

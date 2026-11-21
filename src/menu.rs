@@ -489,7 +489,6 @@ pub fn setup(mut commands: Commands, font: Res<UiFont>, settings: Res<Settings>)
                 .with_children(|row| {
                     for (cmd, label) in [
                         ("tornado", "Tornade"),
-                        ("tsunami", "Tsunami"),
                         ("rain", "Pluie"),
                         ("drain", "Assécher"),
                         ("time 8", "8 h — matin"),
