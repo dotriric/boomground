@@ -36,11 +36,18 @@
   des films d'eau, les vagues et tsunamis progressent à leur vraie hauteur. Le
   niveau est transmis au client (protocole v8) ; surfaces et côtés fusionnés par
   niveau (une nappe plate reste un quad).
+- **Écran noir du menu et monde invisible en jeu (régression 1.7.1) corrigés** :
+  la VRAM économisée en retirant le MSAA de la seule caméra vue en main
+  (« jusqu'à 60 Mo en moins », ci-dessous) rendait les deux caméras
+  incompatibles — Bevy exige le même `Msaa` sur toutes les caméras qui
+  partagent une fenêtre, et rendait donc un écran tout noir. Le MSAA est
+  de nouveau identique sur les deux (réglable dans les options) ; les
+  changements de réglage s'appliquent bien aux deux caméras.
 - **Mémoire** : allocation VRAM compacte (`MemoryHints::MemoryUsage`),
   indices U16 quand le maillage le permet (moitié de la mémoire d'indices),
-  MSAA retiré de la caméra vue en main (jusqu'à 60 Mo de VRAM en moins),
   carte d'ombres initiale 2048 (et non 4096), ancienne carte libérée dès le
-  début d'une régénération (pic de RAM divisé par deux).
+  début d'une régénération (pic de RAM divisé par deux), seuil d'alerte VRAM
+  à 85 % du budget du pilote.
 
 ## 1.7.0
 

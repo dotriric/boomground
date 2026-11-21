@@ -130,12 +130,12 @@ pub fn spawn_player(mut commands: Commands, world: Res<VoxelWorld>) {
                     ViewModelCamera,
                     Camera3d::default(),
                     Hdr,
-                    // Pas d'anticrénelage sur la vue en main : l'image ne
-                    // couvre que les armes, le tampon de profondeur MSAA
-                    // pleine taille qu'exigeait le 4× coûtait 18 à 60 Mo de
-                    // VRAM en double de celui du monde. (Le menu n'écrase
-                    // plus ce choix : la requête exclut cette caméra.)
-                    Msaa::Off,
+                    // Le MSAA de cette caméra DOIT coller à celui de la
+                    // caméra du monde : les deux visent la même fenêtre et
+                    // un modèle d'échantillons différent produit un rendu
+                    // cassé (écran noir, géométrie fantôme — bevy exige des
+                    // `Msaa` identiques sur une même cible).
+                    if msaa() { Msaa::Sample4 } else { Msaa::Off },
                     Tonemapping::TonyMcMapface,
                     grading(),
                     Camera {
