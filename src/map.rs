@@ -714,20 +714,37 @@ fn street_props(w: &mut VoxelWorld, rng: &mut MapRng) {
             }
             t += 10;
         }
-        // Feux tricolores aux carrefours.
+        // Feux tricolores aux carrefours : sur le trottoir du coin (le
+        // pied cherchait l'asphalte et ils plantaient leurs 4 m au
+        // milieu de la chaussée), tête fine rouge/orange/vert face à la
+        // route — plus un « lampadaire chelou » à moitié dans le trafic.
         for j in 0..=blocks {
             let cz = j * BLOCK;
-            let (cx, cz) = (c, cz);
             for (sx, sz) in [(-1, -1), (1, 1)] {
-                let mut p = IVec3::new(cx + sx * (ROAD + 1), y0, cz + sz * (ROAD + 1));
-                // Posé sur ce qu'il y a vraiment : à l'angle d'un carrefour,
-                // il n'y a pas de trottoir mais l'asphalte, plus bas.
+                let mut p = IVec3::new(
+                    c + sx * (ROAD + WALK),
+                    y0,
+                    cz + sz * (ROAD + WALK),
+                );
+                // Posé sur ce qu'il y a vraiment (trottoir surélevé).
                 while p.y > 1 && !w.is_solid(p - IVec3::Y) {
                     p.y -= 1;
                 }
-                w.fill(p, p + IVec3::new(1, 11, 1), FURN_METAL);
-                w.fill(p + IVec3::new(0, 8, 0), p + IVec3::new(1, 11, 1), BLACK);
-                w.set(p + IVec3::new(0, 9, 0), true, LAMP);
+                if !free(w, p, p + IVec3::new(1, 11, 1)) {
+                    continue;
+                }
+                // Mât fin, tête dans l'axe du mât (la consommation du feu
+                // se lit des quatre côtés) : tout reste attaché au sol.
+                for dy in 0..8 {
+                    w.set(p + IVec3::new(0, dy, 0), true, FURN_METAL);
+                }
+                for dy in 8..11 {
+                    w.set(p + IVec3::new(0, dy, 0), true, BLACK);
+                }
+                // Feu allumé : rouge en haut ou vert en bas (parité du
+                // carrefour) — la nuit, points rouge/vert dans la masse.
+                let (lit, dy) = if (k + j) % 2 == 0 { (RED, 10) } else { (GREEN, 8) };
+                w.set(p + IVec3::new(0, dy, 0), true, lit);
             }
         }
     }

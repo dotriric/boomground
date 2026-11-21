@@ -218,21 +218,40 @@ fn ring(dur: f32) -> AudioSource {
 /// Grincement : balayage de fréquence avec harmoniques.
 fn door_creak(dur: f32) -> AudioSource {
     let mut phase = 0.0f32;
+    // Gonds secs : crissement collant (stick-slip) qui glisse vers le
+    // grave en s'ouvrant, avec deux à-coups de charnière.
     render(dur, |t| {
-        let f = 180.0 + 120.0 * (std::f32::consts::TAU * 1.7 * t).sin() + 140.0 * t;
+        let f = 330.0 + 260.0 * (std::f32::consts::TAU * 2.1 * t).sin() - 170.0 * t;
         phase += std::f32::consts::TAU * f / RATE as f32;
-        let env = (t * 12.0).min(1.0) * (1.0 - t / dur);
-        (phase.sin() + 0.5 * (phase * 2.0).sin() + 0.3 * (phase * 3.0).sin()) * env * 0.4
+        let stick = (t * 9.0).min(1.0) * (1.0 - t / dur);
+        let env = stick * stick * (1.0 + 0.25 * (std::f32::consts::TAU * 9.0 * t).sin()).max(0.0);
+        (phase.sin() + 0.35 * (phase * 2.0).sin()) * env * 0.32
     })
 }
 
-/// Moteur : onde en dents de scie grave modulée (bouclable).
+/// Moteur : grondement riche — harmoniques d'un quatre-temps (le grondement
+/// sort en boucle parfaite : chaque fréquence est un multiple entier de la
+/// durée), bruit d'échappement filtré, et un « chug » qui suit le régime
+/// (le jeu module la vitesse de lecture avec les km/h, le ton monte donc
+/// naturellement, sans le sifflement de l'ancienne scie pure).
 fn engine(dur: f32) -> AudioSource {
+    let mut n = Noise(31);
+    let mut lp = 0.0f32;
+    let mut lp2 = 0.0f32;
     render(dur, |t| {
-        let f = 70.0;
-        let saw = (t * f).fract() * 2.0 - 1.0;
-        let pulse = (std::f32::consts::TAU * 28.0 * t).sin() * 0.3 + 0.7;
-        saw * pulse * 0.6 + (std::f32::consts::TAU * f * 0.5 * t).sin() * 0.4
+        let f0 = 30.0 / dur; // 30 tours sur la boucle
+        let raw = n.next();
+        lp += (raw - lp) * 0.015;
+        lp2 += (lp - lp2) * 0.1;
+        let phase = std::f32::consts::TAU * f0 * t;
+        let mut s = 0.0f32;
+        for (h, a) in [(0.5, 0.35), (1.0, 0.6), (2.0, 0.5), (3.0, 0.22), (4.0, 0.1)] {
+            s += (phase * h).sin() * a;
+        }
+        // Saturation douce : le moteur fredonne au lieu de siffler.
+        s = (s * 0.45).tanh();
+        let chug = 0.78 + 0.22 * (std::f32::consts::TAU * 8.0 * t / dur).sin();
+        (s * 0.42 + lp2 * 1.35) * chug
     })
 }
 
@@ -334,7 +353,7 @@ fn source_for(kind: SfxKind) -> AudioSource {
         SfxKind::Hurt => hurt_sound(0.7),
         SfxKind::Ring => ring(2.4),
         SfxKind::Door => door_creak(0.7),
-        SfxKind::Engine => engine(0.5),
+        SfxKind::Engine => engine(1.0),
         SfxKind::Horn => horn(0.6),
         SfxKind::Scrape => crash(0.5),
     }

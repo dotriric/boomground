@@ -1,5 +1,57 @@
 # Changelog
 
+## 1.8.0
+
+- **Cycle jour/nuit** : une journée dure 10 minutes (départ 9 h 30), le
+  soleil se lève à 6 h et se couche à 18 h ; ciel, brouillard et ambiance
+  suivent. Heure réglable : boutons du menu pause (8 h / 13 h / 20 h /
+  minuit) ou commande `/time 22`, même en solo. Protocole v9.
+- **Vraie lumière des lampes la nuit** : les 16 lampes les plus proches
+  deviennent de vraies lumières (12 000 cd — la flaque de lumière
+  traverse la rue) ; le jour, seul l'éclat émissif subsiste.
+- **Nuages d'orage** : une nappe sombre recouvre le ciel quand il pleut
+  ou qu'une tornade approche, au lieu d'un bleu éclatant.
+- **Zoom (C)** — style OptiFine/Zoomify : maintenir **C** resserre le
+  champ partout (à pied, en vol, en voiture), la sensibilité souris
+  suit le zoom pour viser. La vue de voiture passe à **X** ; en vol,
+  Ctrl seul fait descendre.
+- **Ombre du joueur** : disque dégradé au sol, qui s'écrase et s'efface
+  quand on s'élève ; cachée en voiture et en vol libre haut.
+- **Voitures** :
+  - **2 places** : conducteur + passager (siège reculé, côté droit).
+    Si le conducteur sort, le passager récupère le volant.
+  - **vraies collisions à pied** : les corps rigides (voitures, immeubles
+    effondrés) bloquent le joueur — on ne traverse plus une voiture
+    dès qu'elle a quitté sa place de parking.
+  - **un poteau n'arrête plus net une voiture lancée** : elle le défonce
+    et passe, juste freinée par l'effort.
+  - **plus résistante** : les impacts coûtent moins de vitesse et
+    l'abîment moins (chips d'impact resserrés).
+  - **son de moteur retravaillé** : grondement harmonique avec
+    échappement filtré qui suit le régime (la vitesse de lecture suit
+    les km/h), plus de scie pure hurlante.
+- **Feux tricolores** : des vrais feux — mât fin sur le trottoir du
+  carrefour (plus jamais planté sur l'asphalte au milieu de la
+  chaussée), tête noire à trois feux, rouge ou vert allumé selon le
+  carrefour. Nouveau matériau vert (bloqué « feu » par les tornades
+  comme le reste du mobilier).
+- **Tornades au sol** : elles suivaient la hauteur du terrain et
+  grimpaient sur les toits rencontrés ; elles vivent désormais au
+  niveau de la rue.
+- **Tsunami** : la vague couvre **toute la largeur de la carte**, un
+  vrai raz-de-marée au lieu d'un couloir de 65 m.
+- **Grincement de porte** : joué en 2D avec le volume qui suit la
+  distance ; la spatialisation crachotait dès qu'on tournait la tête
+  pendant le grincement (le son sautait d'une oreille à l'autre).
+- **Perf : grandes cartes** : la distance de chargement effective est
+  plafonnée selon la qualité (240 m en Ultra). À 600 m, une grande
+  carte tenait ~80 000 morceaux vivants et mangeait le budget des 60
+  fps ; le brouillard suit la distance effective donc rien ne manque à
+  l'œil. ~88 EPS maintenus en mégabombes en rafale sur la grande
+  carte.
+- **Bac à sable** : le compte d'armes du sélecteur de mode est calculé
+  (76 aujourd'hui) au lieu d'un « 13 » périmé.
+
 ## 1.7.1
 
 - **Faces « transparentes » corrigées** là où elles subsistaient :

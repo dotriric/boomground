@@ -1969,13 +1969,14 @@ pub fn settings_panel(
     if let Ok(mut p) = projection.single_mut() {
         if let Projection::Perspective(persp) = p.as_mut() {
             persp.fov = settings.fov.to_radians();
-            persp.far = settings.view_distance + 60.0;
+            persp.far = settings.effective_view_distance() + 60.0;
         }
     }
     if let Ok(mut f) = fog.single_mut() {
+        let eff = settings.effective_view_distance();
         f.falloff = FogFalloff::Linear {
-            start: settings.view_distance * 0.35,
-            end: settings.view_distance,
+            start: eff * 0.35,
+            end: eff,
         };
     }
     for mut sun in &mut suns {

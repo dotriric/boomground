@@ -67,6 +67,10 @@ pub fn controls(
         return;
     }
     *timer = 0.05;
+    // Seul le conducteur commande le véhicule.
+    if game.seat != 0 {
+        return;
+    }
     let axis = |plus: &[KeyCode], minus: &[KeyCode]| -> i8 {
         i8::from(keys.any_pressed(plus.iter().copied())) - i8::from(keys.any_pressed(minus.iter().copied()))
     };
@@ -133,9 +137,15 @@ pub fn camera(
         *third = !*third;
     }
     if !*third {
-        // Première personne : yeux au siège du conducteur (à gauche, un peu
-        // en avant), regard dans l'axe de la voiture, légèrement vers le bas.
-        let eye = b.pos + b.rot * Vec3::new(-0.35, 0.75, 0.1);
+        // Première personne : yeux au siège du conducteur (siège gauche, un
+        // peu en avant), regard dans l'axe de la voiture — ou au siège
+        // passager, un peu en recul, si c'est la place occcupée.
+        let seat = if game.seat == 0 {
+            Vec3::new(-0.35, 0.75, 0.1)
+        } else {
+            Vec3::new(0.35, 0.75, -0.4)
+        };
+        let eye = b.pos + b.rot * seat;
         *smooth = Some(eye);
         let rot_inv = pt.rotation.inverse();
         h.translation = rot_inv * (eye - pt.translation);

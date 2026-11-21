@@ -193,8 +193,10 @@ struct Client {
     voice_refill: Instant,
     /// Connexion de simple consultation : fermée après la réponse.
     close_after: bool,
-    /// Corps du véhicule conduit et dernières commandes.
+    /// Corps du véhicule conduit et dernières commandes. `seat` : 0 =
+    /// conducteur (seul à commander), 1 = passager.
     driving: Option<u32>,
+    seat: u8,
     drive: (i8, i8, bool),
     drive_at: Instant,
     /// Véhicule **à peine quitté** : jusqu'à cette date, il ne peut pas
@@ -406,6 +408,7 @@ fn new_client(stream: TcpStream, addr: IpAddr, rules: &Rules, mode: u8) -> Clien
         voice_refill: now,
         close_after: false,
         driving: None,
+        seat: 0,
         drive: (0, 0, false),
         drive_at: now,
         vehicle_left: None,
@@ -1445,18 +1448,19 @@ fn serve(mut server: ResMut<ServerState>, time: Res<Time>) {
         .map(|(&id, _)| id)
         .collect();
     for id in drivers {
-        let (body_id, drive, fresh, dead) = {
+        let (body_id, drive, fresh, dead, seat) = {
             let c = &server.clients[&id];
             (
                 c.driving.unwrap(),
                 c.drive,
                 now.duration_since(c.drive_at) < Duration::from_millis(400),
                 c.dead_until.is_some(),
+                c.seat,
             )
         };
         let state = server.sim.body_mut(body_id).map(|b| {
             if let Some(v) = b.vehicle.as_mut() {
-                if fresh {
+                if fresh && seat == 0 {
                     v.throttle = drive.0 as f32;
                     v.steer = drive.1 as f32;
                     v.brake = drive.2;
@@ -2311,9 +2315,16 @@ fn handle_enter(server: &mut ServerState, id: u16, car: u16) {
             b
         }
     };
-    // Place prise ?
-    if server.clients.values().any(|c| c.driving == Some(body_id)) {
-        notice(server, id, "La place est prise.");
+    // Places : deux par voiture (conducteur + passager). Siège 0 = le
+    // volant ; si le conducteur sort, le passager le récupère.
+    let seat = server
+        .clients
+        .values()
+        .filter(|c| c.driving == Some(body_id))
+        .count()
+        as u8;
+    if seat >= 2 {
+        notice(server, id, "Véhicule complet (2 places).");
         return;
     }
     let alive = server.sim.body(body_id).and_then(|b| b.vehicle.as_ref()).is_some_and(|v| v.alive);
@@ -2323,11 +2334,12 @@ fn handle_enter(server: &mut ServerState, id: u16, car: u16) {
     }
     if let Some(c) = server.clients.get_mut(&id) {
         c.driving = Some(body_id);
+        c.seat = seat;
         c.vehicle_left = None;
         c.drive = (0, 0, false);
         c.drive_at = Instant::now();
     }
-    send(server, id, &Packet::Driving { body: body_id });
+    send(server, id, &Packet::Driving { body: body_id, seat });
 }
 
 /// Fait descendre un conducteur (à côté du véhicule si `place`).
@@ -2400,7 +2412,25 @@ fn eject_driver(server: &mut ServerState, id: u16, place: bool) {
             c.teleporting = Some((p, now));
             c.queue(&Packet::Teleport { pos: p }.encode());
         }
-        c.queue(&Packet::Driving { body: 0 }.encode());
+        c.seat = 0;
+        c.queue(&Packet::Driving { body: 0, seat: 0 }.encode());
+    }
+    // Le volant passe au passager restant (il voit la conduite rendue).
+    if server.clients.values().any(|c| c.driving == Some(body_id)) {
+        let promote: Vec<u16> = server
+            .clients
+            .iter()
+            .filter(|(_, c)| c.driving == Some(body_id))
+            .map(|(&i, _)| i)
+            .collect();
+        for (i, c) in server.clients.iter_mut() {
+            if !promote.contains(i) {
+                continue;
+            }
+            c.seat = 0;
+            let p = Packet::Driving { body: body_id, seat: 0 };
+            c.queue(&p.encode());
+        }
     }
 }
 
@@ -3304,7 +3334,10 @@ fn spawn_tornado(server: &mut ServerState, near: Vec3) {
     let a = fire_rand(server) * std::f32::consts::TAU;
     let start = near + Vec3::new(a.cos(), 0.0, a.sin()) * 70.0;
     let dir = (near - start).with_y(0.0).normalize_or_zero();
-    let ground = server.world.ground_height(start.x, start.z);
+    // La tornade vit au niveau de la rue : `ground_height` la faisait
+    // grimper sur les toits rencontrés (et redescendre ensuite),
+    // complètement surnaturel.
+    let ground = server.world.origin.y + crate::map::GROUND as f32 * crate::world::VOXEL;
     server.tornadoes.push(Tornado {
         id: server.tornado_seq,
         pos: Vec3::new(start.x, ground, start.z),
@@ -3319,18 +3352,20 @@ fn start_tsunami(server: &mut ServerState, near: Vec3) {
     let c = server.world.world_to_cell(near);
     let along_z = fire_rand(server) < 0.5;
     let sign = if fire_rand(server) < 0.5 { 1 } else { -1 };
-    let (len, across, along) = if along_z { (d.z, c.x, c.z) } else { (d.x, c.z, c.x) };
+    let (len, along) = if along_z { (d.z, c.z) } else { (d.x, c.x) };
     // Départ à ~60 m de l'hôte (depuis le bord, la vague mettait plus d'une
     // minute à arriver sur une grande carte).
     let front = (along - sign * 150).clamp(2, len - 3) as f32;
     let width = if along_z { d.x } else { d.z };
+    // Toute la largeur de la carte : un vrai raz-de-marée, pas un couloir
+    // de 65 m qui épargne la ville voisine.
     server.tsunami = Some(Tsunami {
         along_z,
         sign,
         front,
         last: front as i32,
-        lo: (across - 80).max(2),
-        hi: (across + 80).min(width - 2),
+        lo: 2,
+        hi: width - 2,
         height: 14,
     });
 }
@@ -3453,7 +3488,9 @@ fn nature_tick(server: &mut ServerState, dt: f32) {
         if c.x < 8 || c.z < 8 || c.x > server.world.dims.x - 8 || c.z > server.world.dims.z - 8 {
             t.dir = -t.dir;
         } else {
-            t.pos = Vec3::new(next.x, server.world.ground_height(next.x, next.z), next.z);
+            // Toujours au ras du sol de la rue (jamais sur un toit).
+            let ground = server.world.origin.y + crate::map::GROUND as f32 * crate::world::VOXEL;
+            t.pos = Vec3::new(next.x, ground, next.z);
         }
         // Arrache ce qui est fragile autour de la base.
         let mut cells = Vec::new();

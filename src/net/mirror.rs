@@ -48,6 +48,9 @@ pub struct Mirror {
     /// Dernière pose connue de chaque corps (pour le recréer en place quand
     /// sa forme change).
     poses: HashMap<u32, (Vec3, Quat)>,
+    /// Demi-tailles des grilles des corps (mètres), pour les collisions du
+    /// joueur avec les corps rigides (voitures, immeubles effondrés).
+    pub body_sizes: HashMap<u32, Vec3>,
     /// Flammes affichées, par voxel.
     pub fires: HashMap<IVec3, Entity>,
 }
@@ -58,6 +61,7 @@ impl Mirror {
             commands.entity(e).despawn();
         }
         self.poses.clear();
+        self.body_sizes.clear();
         for (_, e) in self.bodies.drain() {
             commands.entity(e).despawn();
         }
@@ -156,6 +160,8 @@ impl Mirror {
         let Partial { dims, com, parts, .. } = self.partial.remove(&id).unwrap();
         let bytes: Vec<u8> = parts.into_values().flatten().collect();
         let dims3 = IVec3::new(dims[0] as i32, dims[1] as i32, dims[2] as i32);
+        // Demi-taille de la grille (mètres) : sert aux collisions du joueur.
+        self.body_sizes.insert(id, dims3.as_vec3() * crate::world::VOXEL * 0.5);
         let Some(grid) = BodyGrid::decode_rle(dims3, &bytes) else { return };
 
         if let Some(old) = self.bodies.remove(&id) {
@@ -229,6 +235,7 @@ impl Mirror {
     pub fn remove_body(&mut self, commands: &mut Commands, id: u32) {
         self.partial.remove(&id);
         self.poses.remove(&id);
+        self.body_sizes.remove(&id);
         if let Some(e) = self.bodies.remove(&id) {
             commands.entity(e).despawn();
         }

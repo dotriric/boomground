@@ -1043,7 +1043,7 @@ pub struct VoxelAssets {
 }
 
 /// Palette (sRGB) : couleur par identifiant de matériau.
-pub const PALETTE: [(f32, f32, f32); 24] = [
+pub const PALETTE: [(f32, f32, f32); 25] = [
     (0.58, 0.58, 0.55), // 0 béton
     (0.36, 0.36, 0.35), // 1 béton sombre
     (0.17, 0.17, 0.18), // 2 asphalte
@@ -1068,6 +1068,7 @@ pub const PALETTE: [(f32, f32, f32); 24] = [
     (0.34, 0.36, 0.40), // 21 métal de mobilier
     (0.40, 0.39, 0.37), // 22 roche (sous-sol)
     (0.16, 0.42, 0.66), // 23 eau (affichage seulement)
+    (0.14, 0.62, 0.22), // 24 vert (feux tricolores)
 ];
 
 /// Couleur linéaire d'un matériau : les couleurs de sommets sont lues en
@@ -1108,6 +1109,9 @@ pub mod mat {
     /// Roche du sous-sol (sous la terre).
     pub const STONE: u8 = 22;
 
+    /// Feux tricolores (vert).
+    pub const GREEN: u8 = 24;
+
     /// Matériaux proposés par l'outil de construction.
     pub const BUILD: [u8; 9] = [WOOD, BRICK, CONCRETE, METAL, GLASS, PLASTER, ROOF, BLACK, LAMP];
 }
@@ -1116,7 +1120,7 @@ pub mod mat {
 /// partie de la structure : ils reposent sur elle et tombent seuls.
 pub fn is_prop(material: u8) -> bool {
     use mat::*;
-    matches!(material, BLUE | RED | BLACK | LAMP | FURN_WOOD | FURN_METAL)
+    matches!(material, BLUE | RED | BLACK | GREEN | LAMP | FURN_WOOD | FURN_METAL)
 }
 
 /// Le matériau brûle-t-il ? (bois, feuillage, tissu, peinture, toiture,

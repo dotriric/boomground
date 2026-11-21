@@ -914,7 +914,35 @@ impl Sim {
                 contacts.push(Contact { r, n, depth });
             }
 
+            // Une voiture qui fonce arrache les obstacles fins (poteau,
+            // borne, lampadaire) au lieu de s'arrêter net dessus : les
+            // contacts deviennent une casse du monde (ci-dessous), la
+            // caisse garde l'essentiel de sa vitesse.
+            let plow = body.vehicle.is_some()
+                && body.lin.length() > 7.0
+                && contacts.len() <= 4;
+
             if !contacts.is_empty() {
+                if plow {
+                    // Défonçage : on casse l'obstacle (via `breaks`, qui
+                    // détruit le monde autour du point), la caisse est juste
+                    // freinée par l'effort.
+                    let mut worst = 0.0f32;
+                    let mut point = body.pos;
+                    for c in &contacts {
+                        let vn = (body.lin + body.ang.cross(c.r)).dot(c.n);
+                        if -vn > worst {
+                            worst = -vn;
+                            point = body.pos + c.r;
+                        }
+                    }
+                    if worst > BREAK_SPEED * 0.6 && body.cooldown <= 0.0 {
+                        body.cooldown = 0.12;
+                        breaks.push((bi, point, worst));
+                    }
+                    body.lin *= 1.0 - 0.8 * dt;
+                    body.ang *= 1.0 - 1.5 * dt;
+                } else {
                 // Correction de position (moyenne pondérée).
                 // (avec une tolérance : pas de correction pour un
                 // enfoncement négligeable, ce qui fait vibrer le corps)
@@ -974,6 +1002,7 @@ impl Sim {
                 } else {
                     0.0
                 };
+                }
             } else {
                 body.rest = 0.0;
             }
@@ -1005,7 +1034,12 @@ impl Sim {
         let mut removed: Vec<u32> = Vec::new();
         let mut new_bodies: Vec<Body> = Vec::new();
         for (bi, point, speed) in breaks {
+            let vehicle = self.bodies.get(bi).is_some_and(|b| b.vehicle.is_some());
+            // Une voiture est faite pour encaisser : l'impact l'abîme
+            // moins qu'un mur (chips plus proches du point) et lui coûte
+            // moins de vitesse — elle traverse, freinée mais pas stoppée.
             let radius = ((speed - BREAK_SPEED) * 0.28 + 0.5).clamp(0.5, 3.2);
+            let radius = if vehicle { radius * 0.75 } else { radius };
             ev.push(SimEvent::Impact { at: point, power: speed });
             // Monde.
             let mut carved = world.carve(point, radius * 0.8);
@@ -1051,8 +1085,8 @@ impl Sim {
             }
             let (vel, ang, pos) = (body.lin, body.ang, body.pos);
             // Perte d'énergie à l'impact.
-            body.lin *= 0.55;
-            body.ang *= 0.7;
+            body.lin *= if vehicle { 0.72 } else { 0.55 };
+            body.ang *= if vehicle { 0.8 } else { 0.7 };
             // Gravats : un bloc par zone de 2×2×2 de la grille locale.
             use std::collections::HashMap;
             let mut zones: HashMap<IVec3, (Vec3, u32, u8)> = HashMap::new();
@@ -2040,7 +2074,9 @@ mod tests {
         let mut ev = Vec::new();
         let mut max_y = start_y;
         let mut max_spin = 0.0f32;
-        for _ in 0..360 {
+        // ~3 s : de quoi foncer (20 m) sur le poteau, le défoncer, et
+        // continuer — un poteau fin n'arrête plus net une voiture lancée.
+        for _ in 0..180 {
             if let Some(b) = sim.body_mut(id) {
                 let v = b.vehicle.as_mut().unwrap();
                 v.throttle = 1.0;
@@ -2056,6 +2092,11 @@ mod tests {
         assert!(max_y - start_y < 1.5, "la voiture ne s'envole pas : +{:.2} m", max_y - start_y);
         assert!((b.rot * Vec3::Y).y > 0.7, "reste sur ses roues");
         assert!(max_spin < 6.0, "pas de toupie : {max_spin:.1} rad/s");
+        assert!(
+            b.pos.z < 34.0,
+            "le poteau est défoncé, la voiture passe : z = {:.1}",
+            b.pos.z
+        );
     }
 
     #[test]
