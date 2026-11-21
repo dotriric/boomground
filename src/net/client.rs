@@ -499,6 +499,9 @@ pub fn receive(
                 mirror.pose_bodies(&list, net_bodies);
             }
             Packet::Water { add, remove } => {
+                if std::env::var("BOOM_DEBUG_WATER").is_ok() {
+                    eprintln!("[dbg] client water: +{} -{}", add.len(), remove.len());
+                }
                 let add = add
                     .iter()
                     .map(|c| (IVec3::new(c[0] as i32, c[1] as i32, c[2] as i32), c[3] as u8))
@@ -511,6 +514,9 @@ pub fn receive(
             }
             Packet::Weather { rain } => {
                 weather.rain = rain as f32 / 255.0;
+            }
+            Packet::DayTime { hour } => {
+                weather.time_target = hour;
             }
             Packet::Tornadoes { list } => {
                 tornadoes.0 = list;

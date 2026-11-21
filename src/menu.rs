@@ -351,7 +351,9 @@ fn mode_card(parent: &mut ChildSpawnerCommands, font: &UiFont, mode: Mode) {
             "BAC À SABLE",
             ui::BLUE,
             [
-                "Les 13 armes d'office",
+                // Compte réel d'armes données (toutes, en bac à sable) —
+                // un chiffre en dur vieillit mal à chaque arme ajoutée.
+                &format!("Les {} armes d'office", crate::game::ALL_WEAPONS.len()),
                 "Munitions et bombes illimitées",
                 "Vol libre avec V",
             ],
@@ -484,7 +486,16 @@ pub fn setup(mut commands: Commands, font: Res<UiFont>, settings: Res<Settings>)
                     },
                 ))
                 .with_children(|row| {
-                    for (cmd, label) in [("tornado", "Tornade"), ("tsunami", "Tsunami"), ("rain", "Pluie"), ("drain", "Assécher")] {
+                    for (cmd, label) in [
+                        ("tornado", "Tornade"),
+                        ("tsunami", "Tsunami"),
+                        ("rain", "Pluie"),
+                        ("drain", "Assécher"),
+                        ("time 8", "☀ 8 h"),
+                        ("time 13", "☀ 13 h"),
+                        ("time 20", "☾ 20 h"),
+                        ("time 0", "☾ Minuit"),
+                    ] {
                         row.spawn((
                             MenuAction::Nature(cmd),
                             ui::button_with(
