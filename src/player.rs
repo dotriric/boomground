@@ -192,11 +192,82 @@ pub fn respawn_on_rebuild(
     }
 }
 
+/// Facteur de zoom courant (1 = aucun), pour réduire la sensibilité de la
+/// souris en proportion — comme les zooms de Minecraft, la tête reste
+/// utilisable pour viser sans « partir dans le décor ».
+#[derive(Resource)]
+pub struct ZoomFactor(pub f32);
+
+impl Default for ZoomFactor {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+/// Zoom « à la OptiFine/Zoomify » : maintenir **C** resserre le champ de la
+/// caméra (et celui du modèle d'arme, pour ne pas le voir gonfler), avec un
+/// lissage — partout : à pied, en vol et en voiture.
+pub fn zoom(
+    time: Res<Time>,
+    keys: Res<ButtonInput<KeyCode>>,
+    game: Res<crate::game::GameState>,
+    shop: Res<crate::shop::ShopState>,
+    settings: Res<crate::game::Settings>,
+    mut world: Query<&mut Projection, (With<WorldCamera>, Without<ViewModelCamera>)>,
+    mut view: Query<&mut Projection, (With<ViewModelCamera>, Without<WorldCamera>)>,
+    mut factor: Local<f32>,
+    mut published: ResMut<ZoomFactor>,
+) {
+    let wanted = controls_open(&game, &shop) && !game.typing && keys.pressed(KeyCode::KeyC);
+    let target = if wanted { 0.22 } else { 1.0 };
+    let dt = time.delta_secs().min(0.1);
+    *factor += (target - *factor) * (1.0 - (-14.0 * dt).exp());
+    if (*factor - target).abs() < 0.004 {
+        *factor = target;
+    }
+    if (published.0 - *factor).abs() > 0.001 {
+        published.0 = *factor;
+    }
+    let zoomed = (*factor - 1.0).abs() > 0.001;
+    if zoomed {
+        if let Ok(mut p) = world.single_mut() {
+            if let Projection::Perspective(persp) = p.as_mut() {
+                persp.fov = settings.fov.to_radians() * *factor;
+            }
+        }
+        if let Ok(mut p) = view.single_mut() {
+            if let Projection::Perspective(persp) = p.as_mut() {
+                persp.fov = 68f32.to_radians() * *factor;
+            }
+        }
+    } else {
+        // Retour au champ des options (un changement de réglage pendant le
+        // zoom reste respecté).
+        if let Ok(mut p) = world.single_mut() {
+            if let Projection::Perspective(persp) = p.as_mut() {
+                let wanted_fov = settings.fov.to_radians();
+                if (persp.fov - wanted_fov).abs() > 0.001 {
+                    persp.fov = wanted_fov;
+                }
+            }
+        }
+        if let Ok(mut p) = view.single_mut() {
+            if let Projection::Perspective(persp) = p.as_mut() {
+                let wanted_fov = 68f32.to_radians();
+                if (persp.fov - wanted_fov).abs() > 0.001 {
+                    persp.fov = wanted_fov;
+                }
+            }
+        }
+    }
+}
+
 /// Regard à la souris + capture du curseur.
 pub fn look(
     settings: Res<crate::game::Settings>,
     game: Res<crate::game::GameState>,
     shop: Res<crate::shop::ShopState>,
+    zoom_factor: Res<ZoomFactor>,
     mouse: Res<AccumulatedMouseMotion>,
     buttons: Res<ButtonInput<MouseButton>>,
     touch: Res<crate::touch::TouchState>,
@@ -245,7 +316,7 @@ pub fn look(
         return;
     };
 
-    let sensitivity = settings.sensitivity;
+    let sensitivity = settings.sensitivity * zoom_factor.0.max(0.05);
     let invert = if settings.invert_y { -1.0 } else { 1.0 };
     body.yaw -= delta.x * sensitivity;
     body.pitch = (body.pitch - delta.y * sensitivity * invert).clamp(-FRAC_PI_2 + 0.02, FRAC_PI_2 - 0.02);
@@ -338,7 +409,8 @@ pub fn move_player(
         if controls && keys.pressed(KeyCode::Space) {
             v += Vec3::Y;
         }
-        if controls && keys.any_pressed([KeyCode::ControlLeft, KeyCode::KeyC]) {
+        // C'est le zoom maintenant ; en vol, seul Ctrl fait descendre.
+        if controls && keys.pressed(KeyCode::ControlLeft) {
             v -= Vec3::Y;
         }
         let speed = if running { FLY * 2.0 } else { FLY };
@@ -552,4 +624,55 @@ pub fn move_player(
 /// Les touches de jeu sont actives (pas de boutique, pas de menu).
 fn controls_open(game: &crate::game::GameState, shop: &crate::shop::ShopState) -> bool {
     !shop.open && game.phase == crate::game::Phase::Playing
+}
+
+/// Ombre portée du joueur : une silhouette douce projetée au sol sous ses
+/// pieds (le corps du joueur en vue subjective n'a pas de maillage, donc le
+/// soleil n'a rien à éclairer). Elle suit le sol, s'écrase et s'efface quand
+/// on s'élève ; en voiture, c'est la voiture qui porte l'ombre.
+#[derive(Component)]
+pub struct PlayerBlob;
+
+pub fn shadow(
+    mut commands: Commands,
+    world: Res<VoxelWorld>,
+    game: Res<crate::game::GameState>,
+    player: Query<&Transform, With<Player>>,
+    mut blob: Query<(&mut Transform, &mut Visibility, &MeshMaterial3d<StandardMaterial>), (With<PlayerBlob>, Without<Player>)>,
+    mut assets: ResMut<crate::world::BlobAssets>,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    let Ok(pt) = player.single() else { return };
+    let (mesh, mat) = assets.get(&mut meshes, &mut images, &mut materials);
+    if blob.single().is_err() {
+        commands.spawn((
+            PlayerBlob,
+            Mesh3d(mesh),
+            MeshMaterial3d(mat),
+            Transform::IDENTITY,
+            bevy::light::NotShadowCaster,
+        ));
+        return;
+    }
+    let Ok((mut t, mut vis, handle)) = blob.single_mut() else { return };
+    let on_foot = game.driving == 0 && game.alive();
+    let ground = world.ground_height(pt.translation.x, pt.translation.z);
+    let above = (pt.translation.y - ground).max(0.0);
+    const FADE: f32 = 14.0;
+    if !on_foot || above > FADE {
+        *vis = Visibility::Hidden;
+        return;
+    }
+    *vis = Visibility::Inherited;
+    let k = 1.0 - above / FADE;
+    t.translation = Vec3::new(pt.translation.x, ground + 0.02, pt.translation.z);
+    // Le plan est déjà posé à plat (normale +Y), seule l'échelle varie.
+    t.rotation = Quat::IDENTITY;
+    t.scale = Vec3::splat(0.55 + 0.25 * k);
+    // L'ombre s'atténue avec la hauteur.
+    if let Some(mut m) = materials.get_mut(&handle.0) {
+        m.base_color = Color::WHITE.with_alpha(0.1 + 0.55 * k);
+    }
 }

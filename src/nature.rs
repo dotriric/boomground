@@ -10,11 +10,16 @@ use crate::world::VoxelWorld;
 /// Identifiant de « matériau » de l'eau (couleur de la palette).
 pub const WATER_MAT: u8 = 23;
 
-/// Météo reçue du serveur.
+/// Météo et heure reçues du serveur.
 #[derive(Resource, Default)]
 pub struct Weather {
     /// Pluie, 0..1.
     pub rain: f32,
+    /// Heure du jour visée par le serveur (0..24) : le client lisse la
+    /// sienne pour éviter les sauts d'éclairage à chaque paquet.
+    pub time_target: f32,
+    /// Heure du jour affichée (lissée).
+    pub day_time: f32,
 }
 
 /// Tornades reçues du serveur : `(id, position au sol, rayon)`.
@@ -239,11 +244,45 @@ pub fn water_meshes(
     mut commands: Commands,
     mut water: ResMut<WaterMirror>,
     world: Res<VoxelWorld>,
+    live: Query<(), With<WaterMesh>>,
+    cam: Query<&GlobalTransform, With<crate::player::WorldCamera>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut material: Local<Option<Handle<StandardMaterial>>>,
     mut shown: Local<HashMap<IVec3, Entity>>,
 ) {
+    let dbg = std::env::var("BOOM_DEBUG_WATER").is_ok();
+    // Harness : une flaque client-side autour de la caméra.
+    let eye = cam.single().map(|c| c.translation()).unwrap_or(Vec3::ZERO);
+    if dbg {
+        let sample = water.levels.keys().take(3).collect::<Vec<_>>();
+        eprintln!(
+            "[dbg] water_meshes: dirty={} shown={} levels={} live={} sample_cells={:?} cam={:?} origin={:?}",
+            water.dirty.len(),
+            shown.len(),
+            water.levels.len(),
+            live.iter().len(),
+            sample,
+            eye,
+            world.origin
+        );
+    }
+    if let Ok(_) = std::env::var("BOOM_WATER_TEST") {
+        let g = crate::map::GROUND;
+        eprintln!("[dbg] test puddle around {eye:?} (cell y {})", g + 2);
+        for dx in -3..4 {
+            for dz in -3..4 {
+                let c = IVec3::new(
+                    ((eye.x - world.origin.x) / crate::world::VOXEL) as i32 + dx,
+                    g + 2,
+                    ((eye.z - world.origin.z) / crate::world::VOXEL) as i32 + dz,
+                );
+                water.levels.insert(c, crate::water::FULL);
+                let k = c.div_euclid(IVec3::splat(crate::vmesh::CHUNK));
+                water.dirty.insert(k);
+            }
+        }
+    }
     if world.full_rebuild {
         for (_, e) in shown.drain() {
             commands.entity(e).despawn();
@@ -280,6 +319,9 @@ pub fn water_meshes(
         if mesh.count_vertices() == 0 {
             continue;
         }
+        if dbg {
+            eprintln!("[dbg] chunk {key}: {} verts", mesh.count_vertices());
+        }
         let e = commands
             .spawn((
                 WaterMesh,
@@ -296,8 +338,8 @@ pub fn water_meshes(
 #[derive(Component)]
 pub struct RainDrop;
 
-/// Pluie : gouttes étirées qui tombent autour de la caméra, ciel et
-/// brouillard assombris.
+/// Pluie : gouttes étirées qui tombent autour de la caméra. (Le ciel et le
+/// brouillard sont pilotés par [`daylight`], qui mêle nuit et pluie.)
 #[allow(clippy::too_many_arguments)]
 pub fn rain(
     time: Res<Time>,
@@ -308,8 +350,6 @@ pub fn rain(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut assets: Local<Option<(Handle<Mesh>, Handle<StandardMaterial>)>>,
-    mut clear: ResMut<ClearColor>,
-    mut fog: Query<&mut DistanceFog>,
     mut seed: Local<u32>,
 ) {
     let mut rand = || {
@@ -317,14 +357,6 @@ pub fn rain(
         (*seed >> 8) as f32 / (1u32 << 24) as f32
     };
     let rain = weather.rain;
-    // Ciel gris quand il pleut.
-    let sky = Color::srgb(0.55, 0.70, 0.90).mix(&Color::srgb(0.42, 0.45, 0.50), rain);
-    if clear.0 != sky {
-        clear.0 = sky;
-    }
-    for mut f in &mut fog {
-        f.color = Color::srgb(0.62, 0.74, 0.90).mix(&Color::srgb(0.45, 0.48, 0.52), rain);
-    }
     let Ok(cam) = camera.single() else { return };
     let eye = cam.translation();
     let wanted = (rain * 700.0) as usize;
@@ -526,5 +558,205 @@ mod tests {
 
     fn world_stub() -> VoxelWorld {
         VoxelWorld::default()
+    }
+}
+
+/// Combien de lampes éclairent vraiment (le reste garde l'émissive, que
+/// le bloom fait rayonner quand même).
+const LIVE_LAMPS: usize = 16;
+
+/// Marqueur des pointes de lumière des lampes.
+#[derive(Component)]
+pub struct LampLight;
+
+/// Cycle jour/nuit : soleil qui se déplace, ciel, brouillard et ambiance
+/// qui suivent l'heure ; la nuit, les lampes deviennent de vraies lumières
+/// (un pool des plus proches — une lumière par lampe de la ville serait
+/// des milliers).
+#[allow(clippy::too_many_arguments)]
+pub fn daylight(
+    time: Res<Time>,
+    mut weather: ResMut<Weather>,
+    mut clear: ResMut<ClearColor>,
+    mut ambient: ResMut<GlobalAmbientLight>,
+    mut fog: Query<&mut DistanceFog>,
+    mut suns: Query<
+        (
+            &mut DirectionalLight,
+            &mut Transform,
+            Option<&bevy::light::CascadeShadowConfig>,
+        ),
+        Without<PointLight>,
+    >,
+    camera: Query<&GlobalTransform, With<crate::player::WorldCamera>>,
+    world: Res<VoxelWorld>,
+    mut lamps: Query<(Entity, &mut Transform, &mut PointLight), With<LampLight>>,
+    mut commands: Commands,
+    mut scan: Local<(f32, Vec3)>,
+    mut night: Local<f32>,
+) {
+    // Heure lissée (chemin le plus court autour de minuit).
+    let dt = time.delta_secs().min(0.1);
+    let mut t = weather.time_target - weather.day_time;
+    if t > 12.0 {
+        t -= 24.0;
+    }
+    if t < -12.0 {
+        t += 24.0;
+    }
+    let step = t.abs().min(dt * 3.0).copysign(t);
+    weather.day_time = (weather.day_time + step + 24.0) % 24.0;
+
+    // Élévation du soleil : 0 à 6 h et 18 h, maximale à midi, négative la
+    // nuit. `up` bascule doucement jour↔nuit autour des lever/coucher.
+    let a = (weather.day_time - 6.0) / 24.0 * std::f32::consts::TAU;
+    let elev = a.sin();
+    let up = (elev * 4.0).clamp(0.0, 1.0);
+    let target_night = 1.0 - up;
+    *night += (target_night - *night) * (1.0 - (-3.0 * dt).exp()).max(0.0);
+    let night = *night;
+
+    // Soleil : il tourne autour du monde (est → ouest). La translation ne
+    // compte que pour la direction : `looking_at` vise le centre.
+    let pos = Vec3::new(-a.cos() * 40.0, elev * 40.0 + 1.5, 12.0);
+    for (mut sun, mut tr, cascades) in &mut suns {
+        if cascades.is_some() {
+            sun.illuminance = 9000.0 * up;
+            tr.translation = pos;
+        } else {
+            // Le contre-jour s'éteint aussi la nuit.
+            sun.illuminance = 1800.0 * up;
+        }
+    }
+
+    // Ciel, brouillard, ambiance : la pluie et la nuit se combinent.
+    let rain = weather.rain;
+    let day_sky = Color::srgb(0.55, 0.70, 0.90).mix(&Color::srgb(0.42, 0.45, 0.50), rain);
+    let night_sky = Color::srgb(0.012, 0.02, 0.05).mix(&Color::srgb(0.05, 0.06, 0.10), rain);
+    clear.0 = day_sky.mix(&night_sky, night);
+    let day_fog = Color::srgb(0.62, 0.74, 0.90).mix(&Color::srgb(0.45, 0.48, 0.52), rain);
+    let night_fog = Color::srgb(0.008, 0.014, 0.035).mix(&Color::srgb(0.04, 0.05, 0.09), rain);
+    for mut f in &mut fog {
+        f.color = day_fog.mix(&night_fog, night);
+    }
+    ambient.brightness = 700.0 - 640.0 * night;
+    ambient.color = Color::srgb(0.72, 0.80, 0.95).mix(&Color::srgb(0.42, 0.52, 0.85), night);
+
+    // La nuit tombée, les lampes proches s'allument.
+    let want = night > 0.25;
+    if lamps.iter().len() < LIVE_LAMPS {
+        for _ in lamps.iter().len()..LIVE_LAMPS {
+            commands.spawn((
+                LampLight,
+                PointLight {
+                    color: Color::srgb(1.0, 0.78, 0.5),
+                    intensity: 0.0,
+                    range: 22.0,
+                    ..default()
+                },
+                Transform::IDENTITY,
+            ));
+        }
+    }
+    for (_, _, mut l) in &mut lamps {
+        // 12 000 W/candela : une vraie flaque de lumière qui traverse la
+        // rue (à 5 m : ~480 lux, devant un lampadaire bien réel), contre
+        // 60 lux d'ambiance nocturne — la nuit tombe de la lampe, pas du
+        // ciel.
+        l.intensity = if want { 12_000.0 } else { 0.0 };
+    }
+    if !want {
+        return;
+    }
+    // Balayage des lampes autour de la caméra, toutes les 2 s (ou si la
+    // caméra a bougé de plus de 8 m).
+    scan.0 -= dt;
+    let moved = scan.1.distance_squared(camera.single().map(|c| c.translation()).unwrap_or(Vec3::ZERO)) > 64.0;
+    if scan.0 > 0.0 && !moved {
+        return;
+    }
+    scan.0 = 2.0;
+    let eye = camera.single().map(|c| c.translation()).unwrap_or(Vec3::ZERO);
+    scan.1 = eye;
+    let g = crate::map::GROUND;
+    let mut best: Vec<(f32, Vec3)> = Vec::new();
+    let c0 = world.world_to_cell(eye);
+    const R: i32 = 60; // ~24 m de rayon
+    for dy in -8..44 {
+        let y = g + dy;
+        if y < 0 || y >= world.dims.y {
+            continue;
+        }
+        for dz in -R..=R {
+            for dx in -R..=R {
+                let c = IVec3::new(c0.x + dx, y, c0.z + dz);
+                if world.is_solid(c) && world.material(c) == crate::world::mat::LAMP {
+                    let p = world.cell_center(c) + Vec3::new(0.0, -0.15, 0.0);
+                    let d2 = p.distance_squared(eye);
+                    if best.len() < LIVE_LAMPS {
+                        best.push((d2, p));
+                    } else if d2 < best[LIVE_LAMPS - 1].0 {
+                        best[LIVE_LAMPS - 1] = (d2, p);
+                        best.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
+                    }
+                }
+            }
+        }
+    }
+    let mut slots = lamps.iter_mut().collect::<Vec<_>>();
+    for (i, (_, p)) in best.iter().take(slots.len()).enumerate() {
+        slots[i].1.translation = *p;
+    }
+}
+
+/// Nappe de nuages d'orage : suit la caméra, s'assombrit et s'épaissit
+/// avec la pluie et les tornades (avant, le ciel restait bleu éclatant au
+/// milieu d'une catastrophe).
+#[derive(Component)]
+pub struct StormCloud;
+
+pub fn clouds(
+    weather: Res<Weather>,
+    tornadoes: Res<Tornadoes>,
+    camera: Query<&GlobalTransform, With<crate::player::WorldCamera>>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut cloud: Query<(&mut Transform, &mut MeshMaterial3d<StandardMaterial>), With<StormCloud>>,
+    mut cloud_mat: Local<Option<Handle<StandardMaterial>>>,
+) {
+    let storm = weather
+        .rain
+        .max((tornadoes.0.len() as f32).clamp(0.0, 1.0) * 0.9)
+        .clamp(0.0, 1.0);
+    if cloud.single().is_err() {
+        if cloud_mat.is_none() {
+            // Nappe immense, unie (le brouillard fond son bord dans le ciel).
+            *cloud_mat = Some(materials.add(StandardMaterial {
+                base_color: Color::srgba(0.10, 0.11, 0.14, 0.0),
+                unlit: true,
+                alpha_mode: AlphaMode::Blend,
+                ..default()
+            }));
+        }
+        let mat = cloud_mat.clone().unwrap();
+        commands.spawn((
+            StormCloud,
+            Mesh3d(meshes.add(
+                Plane3d::new(Vec3::NEG_Y, Vec2::splat(240.0)).mesh().build(),
+            )),
+            MeshMaterial3d(mat),
+            Transform::from_translation(Vec3::new(0.0, 70.0, 0.0)),
+            bevy::light::NotShadowCaster,
+        ));
+        return;
+    }
+    let Ok((mut tr, handle)) = cloud.single_mut() else { return };
+    let eye = camera.single().map(|c| c.translation()).unwrap_or(Vec3::ZERO);
+    tr.translation = Vec3::new(eye.x, 70.0, eye.z);
+    if let Some(mut m) = materials.get_mut(&handle.0) {
+        // Invisible plutôt qu'alpha 0 : un maillage Blend reste dans la
+        // passe transparente même vide.
+        m.base_color = Color::srgba(0.10, 0.11, 0.14, if storm > 0.02 { 0.72 * storm } else { 0.0 });
     }
 }

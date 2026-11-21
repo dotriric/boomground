@@ -128,8 +128,8 @@ pub fn camera(
     pt.translation = b.pos - Vec3::Y * 0.6;
     body.vel = Vec3::ZERO;
 
-    // C : vue de poursuite / vue du conducteur (par défaut).
-    if keys.just_pressed(KeyCode::KeyC) && !game.typing {
+    // X : vue de poursuite / vue du conducteur (par défaut). (C est le zoom.)
+    if keys.just_pressed(KeyCode::KeyX) && !game.typing {
         *third = !*third;
     }
     if !*third {

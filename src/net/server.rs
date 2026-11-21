@@ -263,6 +263,9 @@ struct ServerState {
     rain_left: f32,
     rain_next: f32,
     rain_sent: u8,
+    /// Heure du jour (0..24) et dernière valeur envoyée aux clients.
+    day_time: f32,
+    day_time_sent: f32,
     tornadoes: Vec<Tornado>,
     tornado_seq: u32,
     tornado_timer: f32,
@@ -507,6 +510,9 @@ fn server_app(
         rain_left: 0.0,
         rain_next: 420.0,
         rain_sent: 0,
+        // La journée démarre en milieu de matinée.
+        day_time: 9.5,
+        day_time_sent: -1.0,
         tornadoes: Vec::new(),
         tornado_seq: 0,
         tornado_timer: 0.0,
@@ -2428,6 +2434,18 @@ fn damage_vehicle(server: &mut ServerState, id: u16, body: u32, point: Vec3, bla
 
 /// Chat : nettoyage, limite de débit, anti-répétition, mots interdits.
 fn handle_chat(server: &mut ServerState, id: u16, text: String) {
+    // Les commandes « /… » passent même là où le chat est fermé (solo) :
+    // c'est le seul moyen d'y changer l'heure (« /time 22 »), etc.
+    {
+        let t = text.trim();
+        if let Some(cmd) = t.strip_prefix('/') {
+            let cmd = cmd.trim().to_string();
+            if !cmd.is_empty() {
+                handle_command(server, id, &cmd);
+            }
+            return;
+        }
+    }
     let rules = server.config.rules.clone();
     if !rules.chat || server.config.solo {
         return;
@@ -3097,6 +3115,36 @@ fn handle_command(server: &mut ServerState, id: u16, text: &str) {
                 server.rain_left = 180.0;
             }
         }
+        "time" | "heure" => {
+            match arg.parse::<f32>() {
+                Ok(h) => {
+                    server.day_time = h.clamp(0.0, 23.999);
+                    server.day_time_sent = server.day_time;
+                    broadcast(server, None, &Packet::DayTime { hour: server.day_time });
+                    let h = server.day_time;
+                    notice(server, id, &format!("Il est {:02.0}:{:02.0}", h.floor(), h.fract() * 60.0));
+                }
+                Err(_) => {
+                    let h = server.day_time;
+                    notice(server, id, &format!("Heure : {:02.0}:{:02.0} — « /time 22 » pour changer", h.floor(), h.fract() * 60.0));
+                }
+            }
+        }
+        "water" => {
+            // Debug : une flaque autour de l'hôte, pour valider l'affichage.
+            let at = server.clients.get(&id).map(|c| c.pos).unwrap_or(Vec3::ZERO);
+            let c = server.world.world_to_cell(at);
+            let g = crate::map::GROUND;
+            for dx in -4..5 {
+                for dz in -4..5 {
+                    for y in 0..2 {
+                        let cell = IVec3::new(c.x + dx, g + 1 + y, c.z + dz);
+                        server.water.add(&server.world, cell, crate::water::FULL);
+                    }
+                }
+            }
+            broadcast_water(server);
+        }
         "drain" | "assecher" => {
             let shown = server.water.drain_all();
             send_water(server, Vec::new(), shown);
@@ -3288,6 +3336,13 @@ fn start_tsunami(server: &mut ServerState, near: Vec3) {
 }
 
 fn nature_tick(server: &mut ServerState, dt: f32) {
+    // --- Heure du jour : une journée complète en 10 minutes réelles ---
+    server.day_time = (server.day_time + dt * 24.0 / 600.0) % 24.0;
+    if (server.day_time - server.day_time_sent).abs() > 0.09 || server.day_time_sent < 0.0 {
+        server.day_time_sent = server.day_time;
+        broadcast(server, None, &Packet::DayTime { hour: server.day_time });
+    }
+
     // --- Pluie : averses de temps en temps ---
     if server.rain_left > 0.0 {
         server.rain_left -= dt;
@@ -3317,6 +3372,13 @@ fn nature_tick(server: &mut ServerState, dt: f32) {
 
     // --- Tsunami ---
     if let Some(mut t) = server.tsunami.take() {
+        let dbg_added = std::env::var("BOOM_DEBUG_WATER").is_ok();
+        if dbg_added {
+            if let Some((id, c)) = server.clients.iter().next() {
+                eprintln!("[dbg] tsunami front={} last={} lo={} hi={} h={} host cell={:?} dims={:?}", t.front, t.last, t.lo, t.hi, t.height, server.world.world_to_cell(c.pos), server.world.dims);
+                let _ = id;
+            }
+        }
         let d = server.world.dims;
         let len = if t.along_z { d.z } else { d.x };
         t.front += t.sign as f32 * 28.0 * step;
@@ -3336,6 +3398,9 @@ fn nature_tick(server: &mut ServerState, dt: f32) {
                             weak_cells.push(c);
                         }
                     } else {
+                        if dbg_added && server.water.len() % 10_000 == 0 {
+                            eprintln!("[dbg] tsunami water cells: {}", server.water.len());
+                        }
                         server.water.add(&server.world, c, crate::water::FULL);
                     }
                 }

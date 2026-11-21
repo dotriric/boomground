@@ -64,6 +64,8 @@ pub fn run() {
         .init_resource::<net::mirror::Mirror>()
         .init_resource::<fx::ParticleDensity>()
         .init_resource::<chat::Chat>()
+        .init_resource::<player::ZoomFactor>()
+        .init_resource::<world::BlobAssets>()
         .init_resource::<servers::ServerList>()
         .init_resource::<voice::VoiceInbox>()
         .init_resource::<voice::Voice>()
@@ -214,6 +216,9 @@ pub fn run() {
                 .chain()
                 .after(ui::update_toasts),
         )
+        // Zoom (C) : hors de la chaîne ci-dessus, elle est pleine — la
+        // limite de taille de tuple pour `.chain()` est atteinte.
+        .add_systems(Update, (player::zoom, player::shadow))
         // Monde : gravats, débris, effets, rendu, réseau, HUD.
         .add_systems(
             Update,
@@ -259,7 +264,7 @@ pub fn run() {
         )
         .add_systems(PostStartup, crashlog::show_last)
         .add_systems(Update, i18n::retranslate)
-        .add_systems(Update, (nature::water_meshes, nature::rain, nature::tornadoes))
+        .add_systems(Update, (nature::water_meshes, nature::rain, nature::daylight, nature::clouds, nature::tornadoes))
         .add_systems(Update, chat::update.after(ui::text_fields))
         .add_systems(Last, (perf::detect_refresh, perf::limit).chain())
         .run();

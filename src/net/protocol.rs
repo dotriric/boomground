@@ -135,6 +135,8 @@ pub enum Packet {
     Weather { rain: u8 },
     /// Serveur → clients : tornades `(id, position au sol, rayon)`.
     Tornadoes { list: Vec<(u32, Vec3, f32)> },
+    /// Serveur → clients : heure du jour (0..24, cycle jour/nuit).
+    DayTime { hour: f32 },
     /// Serveur → client : poussée (vent, vague) à ajouter à la vitesse.
     Push { vel: Vec3 },
     /// Serveur → client : inventaire autoritaire.
@@ -506,6 +508,10 @@ impl Packet {
                 w.u8(50);
                 w.vec3(*vel);
             }
+            Packet::DayTime { hour } => {
+                w.u8(51);
+                w.f32(hour.clamp(0.0, 24.0));
+            }
             Packet::Wheels { list } => {
                 w.u8(46);
                 w.u16(list.len() as u16);
@@ -833,6 +839,7 @@ impl Packet {
                 }
                 Packet::Push { vel: vel.clamp_length_max(60.0) }
             }
+            51 => Packet::DayTime { hour: cur.f32()?.clamp(0.0, 24.0) },
             46 => {
                 let n = cur.u16()?;
                 let mut list = Vec::with_capacity(n.min(512) as usize);
