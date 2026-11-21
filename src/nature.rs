@@ -302,8 +302,13 @@ pub fn water_meshes(
             })
         })
         .clone();
-    // Quelques morceaux par image (une vague en salit beaucoup).
-    let keys: Vec<IVec3> = water.dirty.iter().copied().take(24).collect();
+    // Quelques morceaux par image — mais **beaucoup** quand un tsunami
+    // salit la moitié de la carte : un front de vague plein largeur
+    // dégrade ~3 000 morceaux par seconde ; à 24 par image (1 400/s),
+    // le maillage prenait des secondes de retard et l'eau n'apparaissait
+    // qu'après le passage, une vague « invisible » qui détruisait sans
+    // se montrer. 120/image (7 200/s) suit la vague.
+    let keys: Vec<IVec3> = water.dirty.iter().copied().take(120).collect();
     for k in &keys {
         water.dirty.remove(k);
     }

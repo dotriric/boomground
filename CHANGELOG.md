@@ -40,6 +40,16 @@
   niveau de la rue.
 - **Tsunami** : la vague couvre **toute la largeur de la carte**, un
   vrai raz-de-marée au lieu d'un couloir de 65 m.
+  - **L'eau est enfin visible** : le front de vague salissait ~3 000
+    morceaux d'eau par seconde alors que le mailleur n'en reconstruisait
+    que 1 400/s — l'affichage prenait des secondes de retard et la vague
+    passait en détruisant sans se montrer. Budget porté à 120 par
+    image : la vague se voit, au front comme à l'arrière.
+  - **L'écoulement retombe** : derrière la vague ne reste plus deux
+    cellules pleines (0,8 m d'eau sur toute la ville — or seules les
+    cellules pas tout à fait pleines s'évaporent : l'inondation
+    restait à vie) mais un filet peu profond qui coule vers les creux
+    et s'évapore en une minute.
 - **Grincement de porte** : joué en 2D avec le volume qui suit la
   distance ; la spatialisation crachotait dès qu'on tournait la tête
   pendant le grincement (le son sautait d'une oreille à l'autre).
