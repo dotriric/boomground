@@ -33,6 +33,11 @@ Ces fichiers ne sont PAS de Riric65 et gardent leurs licences d'origine
 - `assets/music/*.ogg` — **CC0 1.0 Universal** (domaine public), voir la
   liste exacte des morceaux, auteurs et sources dans
   [`assets/music/CREDITS.md`](assets/music/CREDITS.md).
+- `assets/icon/discord.png` — **logo Discord**, marque déposée de Discord
+  Inc. : utilisé UNIQUEMENT comme bouton-lien vers le serveur officiel du
+  jeu (https://discord.gg/M8CnT2MBS6), conformément aux consignes de
+  marque de Discord pour les liens. Toute autre utilisation est interdite
+  sans autorisation de Discord, Inc.
 
 Tout le reste (code, textures générées, icônes, sons synthétisés par le
 jeu, données de génération) est l'œuvre du projet et suit la GPL.

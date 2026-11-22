@@ -888,23 +888,25 @@ fn skyscrapers(w: &mut VoxelWorld, rng: &mut MapRng) {
         return;
     }
     let count = if nb < 14 { 1 } else { 3 };
+    // Sur les très grandes cartes, une tour de 3×3 pâtés (77 m de côté).
+    let span = if nb >= 24 { 3 } else { 2 };
     let mid = nb / 2; // pâté de l'apparition : on l'épargne
     let mut placed = 0;
     for k in 0..6 {
         if placed >= count {
             break;
         }
-        let bx = mid - 3 + (k % 2) * 4;
-        let bz = mid - 3 + (k / 2) * 4;
-        if bx < 1 || bz < 1 || bx + 2 >= nb || bz + 2 >= nb {
+        let bx = mid - 3 + (k % 2) * (span + 1);
+        let bz = mid - 3 + (k / 2) * (span + 1);
+        if bx < 1 || bz < 1 || bx + span >= nb || bz + span >= nb {
             continue;
         }
-        if (bx..=bx + 1).contains(&mid) && (bz..=bz + 1).contains(&mid) {
+        if (bx..bx + span).contains(&mid) && (bz..bz + span).contains(&mid) {
             continue;
         }
         let margin = ROAD + WALK + 1;
         let min = IVec3::new(bx * BLOCK + margin, GROUND, bz * BLOCK + margin);
-        let max = IVec3::new((bx + 2) * BLOCK - margin, GROUND, (bz + 2) * BLOCK - margin);
+        let max = IVec3::new((bx + span) * BLOCK - margin, GROUND, (bz + span) * BLOCK - margin);
         if skyscraper(w, rng, min, max) {
             placed += 1;
         }
@@ -915,8 +917,9 @@ fn skyscrapers(w: &mut VoxelWorld, rng: &mut MapRng) {
 fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> bool {
     let g = GROUND;
     let storey = 8;
-    let top = (g + rng.range(10, 16) * storey).min(w.dims.y - 8);
-    if top <= g + 48 {
+    // 16 à 26 étages : 51 à 83 m. Avant, 10 étages faisaient « grosse boîte ».
+    let top = (g + rng.range(16, 26) * storey).min(w.dims.y - 8);
+    if top <= g + 80 {
         return false;
     }
     let inset = rng.range(4, 9);
@@ -945,26 +948,39 @@ fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> b
     let mut floor = 0;
     while y < top {
         let y1 = (y + storey).min(top);
-        // Dalle de l'étage.
-        w.fill(IVec3::new(lo.x, y, lo.z), IVec3::new(hi.x, y + 1, hi.z), CONCRETE);
+        // Dalle de l'étage (2 cellules d'épaisseur, posée sur la colonnade).
+        w.fill(IVec3::new(lo.x, y, lo.z), IVec3::new(hi.x, y + 2, hi.z), CONCRETE);
         // Plateau vide.
         w.empty(IVec3::new(lo.x + 1, y + 1, lo.z + 1), IVec3::new(hi.x - 1, y1 - 1, hi.z - 1));
-        // Façades de verre sur les quatre côtés.
-        w.fill(IVec3::new(lo.x, y + 1, lo.z), IVec3::new(hi.x, y1 - 1, lo.z + 1), GLASS);
-        w.fill(IVec3::new(lo.x, y + 1, hi.z - 1), IVec3::new(hi.x, y1 - 1, hi.z), GLASS);
-        w.fill(IVec3::new(lo.x, y + 1, lo.z), IVec3::new(lo.x + 1, y1 - 1, hi.z), GLASS);
-        w.fill(IVec3::new(hi.x - 1, y + 1, lo.z), IVec3::new(hi.x, y1 - 1, hi.z), GLASS);
+        // Façades : vitrage avec meneaux béton tous les 4 voxels. Le verre
+        // transparent coûte très cher en remplissage (surtout en vue
+        // plongeante sur une tour) ; un meneau sur quatre divise presque
+        // par deux les fragments transparents.
+        for x in lo.x..hi.x {
+            let m = if x % 4 == 3 { CONCRETE_DARK } else { GLASS };
+            for yy in y + 1..y1 - 1 {
+                w.set(IVec3::new(x, yy, lo.z), true, m);
+                w.set(IVec3::new(x, yy, hi.z - 1), true, m);
+            }
+        }
+        for z in lo.z..hi.z {
+            let m = if z % 4 == 3 { CONCRETE_DARK } else { GLASS };
+            for yy in y + 1..y1 - 1 {
+                w.set(IVec3::new(lo.x, yy, z), true, m);
+                w.set(IVec3::new(hi.x - 1, yy, z), true, m);
+            }
+        }
         // Poteaux métal tous les 12 voxels, plus les quatre angles.
         let mut x = lo.x;
         while x < hi.x {
-            w.fill(IVec3::new(x, y, lo.z), IVec3::new(x + 1, y1, lo.z + 1), METAL);
-            w.fill(IVec3::new(x, y, hi.z - 1), IVec3::new(x + 1, y1, hi.z), METAL);
+            w.fill(IVec3::new(x, y, lo.z), IVec3::new(x + 1, y1, lo.z + 1), CONCRETE_DARK);
+            w.fill(IVec3::new(x, y, hi.z - 1), IVec3::new(x + 1, y1, hi.z), CONCRETE_DARK);
             x += 12;
         }
         let mut z = lo.z;
         while z < hi.z {
-            w.fill(IVec3::new(lo.x, y, z), IVec3::new(lo.x + 1, y1, z + 1), METAL);
-            w.fill(IVec3::new(hi.x - 1, y, z), IVec3::new(hi.x, y1, z + 1), METAL);
+            w.fill(IVec3::new(lo.x, y, z), IVec3::new(lo.x + 1, y1, z + 1), CONCRETE_DARK);
+            w.fill(IVec3::new(hi.x - 1, y, z), IVec3::new(hi.x, y1, z + 1), CONCRETE_DARK);
             z += 12;
         }
         y = y1;
@@ -973,6 +989,18 @@ fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> b
         if floor % 5 == 0 && hi.x - lo.x > 30 && hi.z - lo.z > 30 {
             lo += IVec3::new(5, 0, 5);
             hi -= IVec3::new(5, 0, 5);
+        }
+    }
+    // Colonnade porteuse : poteaux béton 2×2 tous les 12 voxels, sur toute
+    // la hauteur. Sans ça, les dalles de 40 m de portée ne tenaient que par
+    // leur bord : une fenêtre cassée et les étages tombaient un par un.
+    for x in (lo.x..hi.x).step_by(12) {
+        for z in (lo.z..hi.z).step_by(12) {
+            w.fill(
+                IVec3::new(x, g, z),
+                IVec3::new((x + 1).min(hi.x), top, (z + 1).min(hi.z)),
+                CONCRETE,
+            );
         }
     }
     // Toit : dalle, héliport, balises.

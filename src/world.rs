@@ -19,7 +19,7 @@ pub const VOXEL: f32 = 0.4;
 
 /// Dimensions de la grille (X, Y, Z) en cellules : 845 × 25 × 845 m
 /// (33 × 33 pâtés de maisons, soit ~30 fois l'ancienne carte).
-pub const GRID: [i32; 3] = [2112, 192, 2112];
+pub const GRID: [i32; 3] = [2112, 256, 2112];
 
 /// Taille par défaut de la carte : 33 × 33 pâtés de maisons.
 pub const DEFAULT_BLOCKS: i32 = 33;

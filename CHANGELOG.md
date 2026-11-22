@@ -97,11 +97,17 @@
 - **S'accroupir (Ctrl)** : la boîte de collision passe de 1,7 à 1,0 m et
   la caméra descend — on se faufile sous les plafonds bas et on va plus
   lentement. Ctrl continue de faire descendre en vol.
+- **Bouton Discord** : logo Discord (`assets/icon/discord.png`) en bas de
+  la colonne du menu, qui ouvre https://discord.gg/M8CnT2MBS6 dans le
+  navigateur (presse-papiers en secours, ex. Android).
 - **Gratte-ciel** : sur les cartes de 8 pâtés et plus, deux ou trois tours
   avalent 2×2 pâtés de maisons (4 parcelles et le carrefour) — 32 à 51 m
-  de haut, façades de verre, planchers, poteaux, retraits, héliport et
-  balises. Le monde gagne aussi en hauteur (192 cellules au lieu de 96),
-  ce qui laisse respirer les immeubles du centre.
+  de haut (16 à 26 étages, 3×3 pâtés sur les très grandes cartes),
+  façades vitrées à meneaux, planchers de 2 cellules, **colonnade
+  porteuse** tous les 12 voxels, retraits, héliport et balises. Le monde
+  gagne en hauteur (256 cellules au lieu de 96). Avant : les dalles de
+  40 m de portée ne tenaient que par leur bord, une fenêtre cassée et
+  les étages tombaient un par un.
 - **Pluie** : elle s'arrête sur les toits et les auvents au lieu de
   traverser les bâtiments et de tomber dans les pièces.
 - **Voiture qui tirait à droite** : les bras de levier des quatre roues
@@ -146,7 +152,7 @@
   (« 8 h — matin », « Minuit »…), traduits dans les quatre langues
   comme le reste du menu.
 - **Éclairage groupé** : la liste d'indices du clustering GPU est
-  pré-réservée (131 072 indices, 8 192 tranches) **avant** l'init du
+  pré-réservée (262 144 indices, 16 384 tranches) **avant** l'init du
   rendu, pour que l'allumage des 32 lampes ne corrompe plus quelques
   images (l'ancien réglage arrivait trop tard : l'avertissement
   « resizing the view clustering index list » sortait encore).

@@ -280,6 +280,18 @@ const STRINGS: &[(&str, &str, &str, &str)] = &[
     ("Tu es mort · réapparition dans {} s", "You died · respawn in {} s", "Has muerto · reapareces en {} s", "Du bist tot · Wiedereinstieg in {} s"),
     ("Code : {}", "Code: {}", "Código: {}", "Code: {}"),
     ("Code copié : {}", "Code copied: {}", "Código copiado: {}", "Code kopiert: {}"),
+    (
+        "Le lien Discord s'ouvre dans ton navigateur.",
+        "The Discord link opens in your browser.",
+        "El enlace de Discord se abre en tu navegador.",
+        "Der Discord-Link öffnet sich in deinem Browser.",
+    ),
+    (
+        "Lien copié : {}",
+        "Link copied: {}",
+        "Enlace copiado: {}",
+        "Link kopiert: {}",
+    ),
     ("{} a rejoint la partie", "{} joined the game", "{} se ha unido", "{} ist beigetreten"),
     ("{} est parti", "{} left", "{} se ha ido", "{} ist gegangen"),
     ("Impossible : {}", "Not possible: {}", "Imposible: {}", "Nicht möglich: {}"),
