@@ -888,8 +888,9 @@ fn skyscrapers(w: &mut VoxelWorld, rng: &mut MapRng) {
         return;
     }
     let count = if nb < 14 { 1 } else { 3 };
-    // Sur les très grandes cartes, une tour de 3×3 pâtés (77 m de côté).
-    let span = if nb >= 24 { 3 } else { 2 };
+    // Dès 12 pâtés, une tour de 3×3 pâtés (77 m de côté) : 2×2 faisait
+    // « grosse boîte » à côté des maisons.
+    let span = if nb >= 12 { 3 } else { 2 };
     let mid = nb / 2; // pâté de l'apparition : on l'épargne
     let mut placed = 0;
     for k in 0..6 {
@@ -917,14 +918,14 @@ fn skyscrapers(w: &mut VoxelWorld, rng: &mut MapRng) {
 fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> bool {
     let g = GROUND;
     let storey = 8;
-    // 16 à 26 étages : 51 à 83 m. Avant, 10 étages faisaient « grosse boîte ».
-    let top = (g + rng.range(16, 26) * storey).min(w.dims.y - 8);
-    if top <= g + 80 {
+    // 20 à 28 étages : 64 à 90 m, soit 4 à 5 fois la hauteur d'une maison.
+    let top = (g + rng.range(20, 28) * storey).min(w.dims.y - 8);
+    if top <= g + 120 {
         return false;
     }
     let inset = rng.range(4, 9);
-    let mut lo = min + IVec3::new(inset, 0, inset);
-    let mut hi = max - IVec3::new(inset, 0, inset);
+    let lo = min + IVec3::new(inset, 0, inset);
+    let hi = max - IVec3::new(inset, 0, inset);
     if hi.x - lo.x < 20 || hi.z - lo.z < 20 {
         return false;
     }
@@ -945,29 +946,31 @@ fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> b
         CONCRETE,
     );
     let mut y = g;
-    let mut floor = 0;
     while y < top {
         let y1 = (y + storey).min(top);
         // Dalle de l'étage (2 cellules d'épaisseur, posée sur la colonnade).
         w.fill(IVec3::new(lo.x, y, lo.z), IVec3::new(hi.x, y + 2, hi.z), CONCRETE);
         // Plateau vide.
         w.empty(IVec3::new(lo.x + 1, y + 1, lo.z + 1), IVec3::new(hi.x - 1, y1 - 1, hi.z - 1));
-        // Façades : vitrage avec meneaux béton tous les 4 voxels. Le verre
-        // transparent coûte très cher en remplissage (surtout en vue
-        // plongeante sur une tour) ; un meneau sur quatre divise presque
-        // par deux les fragments transparents.
+        // Façades : bandes de fenêtres (5 rangées vitrées sur 8, meneaux
+        // béton tous les 4 voxels). Le verre transparent coûte très cher
+        // en remplissage quand la tour remplit l'écran : là, il n'y en a
+        // plus qu'un peu plus de la moitié.
+        let window = |yy: i32| (yy - y) % storey < 5;
         for x in lo.x..hi.x {
             let m = if x % 4 == 3 { CONCRETE_DARK } else { GLASS };
             for yy in y + 1..y1 - 1 {
-                w.set(IVec3::new(x, yy, lo.z), true, m);
-                w.set(IVec3::new(x, yy, hi.z - 1), true, m);
+                let cell = if window(yy) { m } else { CONCRETE_DARK };
+                w.set(IVec3::new(x, yy, lo.z), true, cell);
+                w.set(IVec3::new(x, yy, hi.z - 1), true, cell);
             }
         }
         for z in lo.z..hi.z {
             let m = if z % 4 == 3 { CONCRETE_DARK } else { GLASS };
             for yy in y + 1..y1 - 1 {
-                w.set(IVec3::new(lo.x, yy, z), true, m);
-                w.set(IVec3::new(hi.x - 1, yy, z), true, m);
+                let cell = if window(yy) { m } else { CONCRETE_DARK };
+                w.set(IVec3::new(lo.x, yy, z), true, cell);
+                w.set(IVec3::new(hi.x - 1, yy, z), true, cell);
             }
         }
         // Poteaux métal tous les 12 voxels, plus les quatre angles.
@@ -984,12 +987,6 @@ fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> b
             z += 12;
         }
         y = y1;
-        floor += 1;
-        // Retrait tous les 5 étages : une silhouette, pas une boîte.
-        if floor % 5 == 0 && hi.x - lo.x > 30 && hi.z - lo.z > 30 {
-            lo += IVec3::new(5, 0, 5);
-            hi -= IVec3::new(5, 0, 5);
-        }
     }
     // Colonnade porteuse : poteaux béton 2×2 tous les 12 voxels, sur toute
     // la hauteur. Sans ça, les dalles de 40 m de portée ne tenaient que par

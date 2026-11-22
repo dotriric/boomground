@@ -1968,7 +1968,9 @@ mod tests {
 
     #[test]
     fn whole_building_falls_as_one_body_and_settles() {
-        let mut w = VoxelWorld::new();
+        // Petite carte (6 pâtés) : pas de gratte-ciel, le test vise un
+        // immeuble ordinaire.
+        let mut w = VoxelWorld::with_blocks(6);
         w.rebuild(4242);
         let g = crate::map::GROUND;
         // Le bâtiment le plus haut près du centre.
