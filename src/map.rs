@@ -171,10 +171,12 @@ pub fn generate(w: &mut VoxelWorld, seed: u64) -> Vec3 {
         }
     }
 
-    // --- Gratte-ciel : les grandes cartes ont un vrai centre-ville ---
-    skyscrapers(w, &mut rng);
-
     street_props(w, &mut rng);
+
+    // --- Gratte-ciel : les grandes cartes ont un vrai centre-ville ---
+    // (après street_props : la tour rase son empreinte, donc aucun accessoire
+    // de rue ne peut se retrouver à l'intérieur)
+    skyscrapers(w, &mut rng);
 
     // --- Mur d'enceinte ---
     let h = GROUND + 8;
@@ -918,7 +920,8 @@ fn skyscrapers(w: &mut VoxelWorld, rng: &mut MapRng) {
     }
 }
 
-/// Une tour : socle, façade de verre, planchers, poteaux, retraits, héliport.
+/// Une tour : socle, façade de verre, planchers, colonnade porteuse complète,
+/// escalier d'étage en étage, porche d'entrée éclairé, luminaires par étage.
 fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> bool {
     let g = GROUND;
     let storey = 8;
@@ -956,14 +959,14 @@ fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> b
         w.fill(IVec3::new(lo.x, y, lo.z), IVec3::new(hi.x, y + 2, hi.z), CONCRETE);
         // Plateau vide.
         w.empty(IVec3::new(lo.x + 1, y + 1, lo.z + 1), IVec3::new(hi.x - 1, y1 - 1, hi.z - 1));
-        // Façades : bandes de fenêtres (5 rangées vitrées sur 8, meneaux
-        // béton tous les 4 voxels). Le verre transparent coûte très cher
-        // en remplissage quand la tour remplit l'écran : là, il n'y en a
-        // plus qu'un peu plus de la moitié.
+        // Façades sur TOUTE la hauteur de l'étage (y+1..y1) : avant, la
+        // dernière rangée restait vide et laissait un vide d'un bloc entre
+        // deux étages. Bandes de fenêtres (5 rangées vitrées sur 8, meneaux
+        // béton tous les 4 voxels).
         let window = |yy: i32| (yy - y) % storey < 5;
         for x in lo.x..hi.x {
             let m = if x % 4 == 3 { CONCRETE_DARK } else { GLASS };
-            for yy in y + 1..y1 - 1 {
+            for yy in y + 1..y1 {
                 let cell = if window(yy) { m } else { CONCRETE_DARK };
                 w.set(IVec3::new(x, yy, lo.z), true, cell);
                 w.set(IVec3::new(x, yy, hi.z - 1), true, cell);
@@ -971,13 +974,13 @@ fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> b
         }
         for z in lo.z..hi.z {
             let m = if z % 4 == 3 { CONCRETE_DARK } else { GLASS };
-            for yy in y + 1..y1 - 1 {
+            for yy in y + 1..y1 {
                 let cell = if window(yy) { m } else { CONCRETE_DARK };
                 w.set(IVec3::new(lo.x, yy, z), true, cell);
                 w.set(IVec3::new(hi.x - 1, yy, z), true, cell);
             }
         }
-        // Poteaux métal tous les 12 voxels, plus les quatre angles.
+        // Poteaux de façade tous les 12 voxels, sur toute la hauteur.
         let mut x = lo.x;
         while x < hi.x {
             w.fill(IVec3::new(x, y, lo.z), IVec3::new(x + 1, y1, lo.z + 1), CONCRETE_DARK);
@@ -990,18 +993,21 @@ fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> b
             w.fill(IVec3::new(hi.x - 1, y, z), IVec3::new(hi.x, y1, z + 1), CONCRETE_DARK);
             z += 12;
         }
+        // Luminaires au plafond de chaque étage, au milieu des travées
+        // (entre les poteaux de la colonnade) : la tour est éclairée de
+        // l'intérieur la nuit, pas seulement de l'extérieur.
+        for lx in (lo.x + 7..hi.x).step_by(14) {
+            for lz in (lo.z + 7..hi.z).step_by(14) {
+                w.set(IVec3::new(lx, y1 - 1, lz), true, LAMP);
+            }
+        }
         y = y1;
     }
-    // Colonnade porteuse : poteaux béton 3×3 tous les 14 voxels, sur toute
-    // la hauteur. Sans ça, les dalles de 40 m de portée ne tenaient que par
-    // leur bord : une fenêtre cassée et les étages tombaient un par un.
-    // Le coin sud-ouest est laissé libre pour l'escalier.
-    let (stair_x0, stair_z) = (lo.x + 2, lo.z + 2);
+    // Colonnade porteuse : poteaux béton 3×3 tous les 14 voxels, sur toute la
+    // hauteur, COMPLÈTE (aucun coin laissé libre : une fenêtre cassée près
+    // d'un coin sans poteau faisait céder les dalles et la tour s'effondrait).
     for x in (lo.x..hi.x).step_by(14) {
         for z in (lo.z..hi.z).step_by(14) {
-            if x < stair_x0 + 20 && z < stair_z + 6 {
-                continue;
-            }
             w.fill(
                 IVec3::new(x, g, z),
                 IVec3::new((x + 3).min(hi.x), top, (z + 3).min(hi.z)),
@@ -1009,45 +1015,52 @@ fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> b
             );
         }
     }
-    // Escalier droit d'étage en étage, le long du mur ouest : sans ça, on
-    // entrait au rez-de-chaussée et on ne pouvait monter nulle part.
-    {
-        let rise_total = top - g;
-        let mut base = g;
-        while base < top {
-            let rise = (base + storey).min(top) - base;
-            for st in 0..rise {
-                let x = stair_x0 + st * 2;
-                w.fill(
-                    IVec3::new(x, base + st, stair_z),
-                    IVec3::new(x + 2, base + st + 1, stair_z + 3),
-                    CONCRETE,
-                );
-            }
-            let _ = rise_total;
-            base += storey;
-        }
-    }
-    // Entrée : porche ouvert au rez-de-chaussée, face sud — avant, la tour
-    // était une boîte fermée, on ne pouvait pas rentrer dedans.
-    {
-        let door_x = lo.x + 4;
-        w.empty(
-            IVec3::new(door_x, g - 1, lo.z - 1),
-            IVec3::new(door_x + 6, g + 3, lo.z + 3),
-        );
-        // Parvis intérieur dégagé devant la porte.
-        w.empty(
-            IVec3::new(door_x - 1, g, lo.z - 1),
-            IVec3::new(door_x + 7, g + 2, lo.z + 8),
-        );
-    }
     // Toit : dalle, héliport, balises.
     w.fill(IVec3::new(lo.x, y, lo.z), IVec3::new(hi.x, y + 2, hi.z), CONCRETE_DARK);
     let (cx, cz) = ((lo.x + hi.x) / 2, (lo.z + hi.z) / 2);
     w.fill(IVec3::new(cx - 4, y + 2, cz - 4), IVec3::new(cx + 4, y + 3, cz + 4), CONCRETE);
     w.set(IVec3::new(lo.x + 1, y + 3, lo.z + 1), true, LAMP);
     w.set(IVec3::new(hi.x - 2, y + 3, hi.z - 2), true, LAMP);
+    // Escalier : deux volées en épingle par étage dans la travée sud-ouest
+    // (entre les poteaux de la colonnade, qui reste complète) — 1 voxel de
+    // montée par voxel d'avancée, franchissable (STEP = 0,62 m > 0,4 m).
+    {
+        let sx = lo.x + 4;
+        let z_a = lo.z + 4;
+        let z_b = lo.z + 10;
+        let mut base = g;
+        let mut east = true;
+        while base < top {
+            let rise = (base + storey).min(top) - base;
+            for st in 0..rise {
+                let x = if east { sx + st } else { sx + rise - 1 - st };
+                let z = if east { z_a } else { z_b };
+                w.fill(
+                    IVec3::new(x, base + st, z),
+                    IVec3::new(x + 2, base + st + 1, z + 3),
+                    CONCRETE,
+                );
+            }
+            base += storey;
+            east = !east;
+        }
+        // Dernière marche pour passer de l'escalier au toit.
+        w.fill(
+            IVec3::new(sx, top, z_a),
+            IVec3::new(sx + 2, top + 2, z_a + 3),
+            CONCRETE,
+        );
+    }
+    // Entrée : porche ouvert au rez-de-chaussée, face sud, avec une lampe
+    // au-dessus de la porte — avant, la tour était une boîte fermée.
+    {
+        let dx = lo.x + 4;
+        w.empty(
+            IVec3::new(dx - 1, g - 1, lo.z - 2),
+            IVec3::new(dx + 9, g + 6, lo.z + 3),
+        );
+        w.set(IVec3::new(dx + 3, g + 5, lo.z), true, LAMP);
+    }
     true
 }
 

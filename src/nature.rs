@@ -722,29 +722,26 @@ pub fn daylight(
     scan.0 = 2.0;
     let eye = camera.single().map(|c| c.translation()).unwrap_or(Vec3::ZERO);
     scan.1 = eye;
-    let g = crate::map::GROUND;
+    // Registre des lampes tenu par le monde (sinon il faudrait balayer des
+    // millions de voxels à chaque scan) : on ne garde que les plus proches,
+    // en revérifiant qu'elles sont toujours en place.
     let mut best: Vec<(f32, Vec3)> = Vec::new();
-    let c0 = world.world_to_cell(eye);
-    const R: i32 = 170; // ~68 m de rayon (les lampes éclairent à 80 m)
-    for dy in -10..20 {
-        let y = g + dy;
-        if y < 0 || y >= world.dims.y {
+    const R_M2: f32 = 68.0 * 68.0; // ~68 m de rayon (les lampes éclairent à 80 m)
+    for &c in &world.lamps {
+        if !world.is_solid(c) || world.material(c) != crate::world::mat::LAMP {
             continue;
         }
-        for dz in -R..=R {
-            for dx in -R..=R {
-                let c = IVec3::new(c0.x + dx, y, c0.z + dz);
-                if world.is_solid(c) && world.material(c) == crate::world::mat::LAMP {
-                    let p = world.cell_center(c) + Vec3::new(0.0, -0.15, 0.0);
-                    let d2 = p.distance_squared(eye);
-                    if best.len() < LIVE_LAMPS {
-                        best.push((d2, p));
-                    } else if d2 < best[LIVE_LAMPS - 1].0 {
-                        best[LIVE_LAMPS - 1] = (d2, p);
-                        best.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
-                    }
-                }
-            }
+        let p = world.cell_center(c) + Vec3::new(0.0, -0.15, 0.0);
+        let d2 = p.distance_squared(eye);
+        if d2 > R_M2 {
+            continue;
+        }
+        if best.len() < LIVE_LAMPS {
+            best.push((d2, p));
+            best.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
+        } else if d2 < best[LIVE_LAMPS - 1].0 {
+            best[LIVE_LAMPS - 1] = (d2, p);
+            best.sort_by(|x, y| x.0.partial_cmp(&y.0).unwrap());
         }
     }
     let mut slots = lamps.iter_mut().collect::<Vec<_>>();
