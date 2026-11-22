@@ -690,6 +690,17 @@ pub fn receive(
                                     p.spawn((Limb { side, arm: true }, Transform::from_xyz(x, 1.56, 0.0), Visibility::default()))
                                         .with_child((Mesh3d(arm.clone()), MeshMaterial3d(body.clone()), Transform::from_xyz(0.0, -0.36, 0.0)));
                                 }
+                                // Vraie ombre portée du joueur distant : une
+                                // capsule sur la couche 2, invisible à
+                                // l'écran mais vue par les cartes d'ombres
+                                // (avant, seul le joueur local en avait une).
+                                p.spawn((
+                                    Mesh3d(meshes.add(Capsule3d::new(0.3, 1.1).mesh().build())),
+                                    MeshMaterial3d(materials.add(StandardMaterial::default())),
+                                    Transform::from_xyz(0.0, 0.85, 0.0),
+                                    bevy::camera::visibility::RenderLayers::layer(2),
+                                    Visibility::Inherited,
+                                ));
                             });
                         let name = lobby
                             .players

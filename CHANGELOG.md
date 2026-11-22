@@ -100,6 +100,15 @@
 - **Bouton Discord** : logo Discord (`assets/icon/discord.png`) en bas de
   la colonne du menu, qui ouvre https://discord.gg/M8CnT2MBS6 dans le
   navigateur (presse-papiers en secours, ex. Android).
+- **Gratte-ciel v3** : droits (plus de retrait qui flottait au-dessus du
+  mur d'en dessous), 3×3 pâtés dès 12 pâtés, 20 à 28 étages (64 à 90 m).
+  Façade en bandes de fenêtres (5 rangées vitrées sur 8, meneaux tous les
+  4 voxels) : le verre transparent est le poste de dépense nº1 quand la
+  tour remplit l'écran. Ombres : 2 cascades au lieu de 3 (chaque cascade
+  redessinait toute la géométrie visible).
+- **Ombre des autres joueurs en multijoueur** : chaque joueur distant a
+  lui aussi un mannequin d'ombre (capsule couche 2) — avant, seul le
+  joueur local projetait une ombre réelle.
 - **Gratte-ciel** : sur les cartes de 8 pâtés et plus, deux ou trois tours
   avalent 2×2 pâtés de maisons (4 parcelles et le carrefour) — 32 à 51 m
   de haut (16 à 26 étages, 3×3 pâtés sur les très grandes cartes),
