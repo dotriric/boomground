@@ -100,6 +100,22 @@
 - **Bouton Discord** : logo Discord (`assets/icon/discord.png`) en bas de
   la colonne du menu, qui ouvre https://discord.gg/M8CnT2MBS6 dans le
   navigateur (presse-papiers en secours, ex. Android).
+- **Murs et poteaux** : les façades montent d'un bloc de plus (elles
+  s'arrêtaient un cran sous la rive du toit) et les poteaux porteurs
+  passent à 3×3 (1,2 m) dans les immeubles, les tours de verre et les
+  gratte-ciel.
+- **Escaliers** : les maisons ont un escalier intérieur (avant, le seul
+  moyen de monter était le toit), et les gratte-ciel ont un porche ouvert
+  au rez-de-chaussée plus un escalier droit d'étage en étage — on ne
+  pouvait pas rentrer dans une tour, c'était une boîte fermée.
+- **Physique des bâtiments (poids)** : la stabilité ne regarde plus
+  seulement la portée des matériaux, mais aussi **le poids soutenu par
+  chaque endroit** (nombre de blocs au-dessus dans la colonne) : une
+  colonne qui porte 20 blocs tient moins loin qu'une qui en porte 2, les
+  hauts de tour et les porte-à-faux lourds tombent vraiment.
+- **Version** : inchangée (1.8.0) tant qu'aucune release n'est faite — le
+  « (100v0) » du titre de fenêtre est l'identifiant interne de la fenêtre
+  Bevy, pas un numéro de version.
 - **Gratte-ciel v3** : droits (plus de retrait qui flottait au-dessus du
   mur d'en dessous), 3×3 pâtés dès 12 pâtés, 20 à 28 étages (64 à 90 m).
   Façade en bandes de fenêtres (5 rangées vitrées sur 8, meneaux tous les

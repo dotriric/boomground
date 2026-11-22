@@ -282,7 +282,9 @@ fn building(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3, s: &St
     let mid_x = (min.x + max.x) / 2;
     let mid_z = (min.z + max.z) / 2;
 
-    for y in 0..height {
+    // `0..=height` : les murs montent d'un bloc de plus que le toit, sinon
+    // la façade s'arrêtait un cran sous la rive.
+    for y in 0..=height {
         let in_storey = y % s.storey;
         let window_row = in_storey >= 3 && in_storey < s.storey - 2;
         for z in min.z..max.z {
@@ -370,9 +372,11 @@ fn building(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3, s: &St
                 if s.stairs && z < min.z + WALL + 9 {
                     continue;
                 }
+                // 3×3 (1,2 m) : des poteaux de 0,8 m semblaient frêles et
+                // cédaient visuellement sous les grandes dalles.
                 w.fill(
                     IVec3::new(x, min.y, z),
-                    IVec3::new(x + 2, max.y - 1, z + 2),
+                    IVec3::new(x + 3, max.y - 1, z + 3),
                     CONCRETE,
                 );
             }
@@ -872,8 +876,8 @@ fn glass_tower(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) {
     // Poteaux de structure tous les 6 voxels.
     let mut x = bmin.x;
     while x < bmax.x {
-        w.fill(IVec3::new(x, bmin.y, bmin.z), IVec3::new(x + 1, top, bmin.z + 1), METAL);
-        w.fill(IVec3::new(x, bmin.y, bmax.z - 1), IVec3::new(x + 1, top, bmax.z), METAL);
+        w.fill(IVec3::new(x, bmin.y, bmin.z), IVec3::new(x + 2, top, bmin.z + 2), METAL);
+        w.fill(IVec3::new(x, bmin.y, bmax.z - 2), IVec3::new(x + 2, top, bmax.z), METAL);
         x += 6;
     }
 }
@@ -988,17 +992,55 @@ fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> b
         }
         y = y1;
     }
-    // Colonnade porteuse : poteaux béton 2×2 tous les 12 voxels, sur toute
+    // Colonnade porteuse : poteaux béton 3×3 tous les 14 voxels, sur toute
     // la hauteur. Sans ça, les dalles de 40 m de portée ne tenaient que par
     // leur bord : une fenêtre cassée et les étages tombaient un par un.
-    for x in (lo.x..hi.x).step_by(12) {
-        for z in (lo.z..hi.z).step_by(12) {
+    // Le coin sud-ouest est laissé libre pour l'escalier.
+    let (stair_x0, stair_z) = (lo.x + 2, lo.z + 2);
+    for x in (lo.x..hi.x).step_by(14) {
+        for z in (lo.z..hi.z).step_by(14) {
+            if x < stair_x0 + 20 && z < stair_z + 6 {
+                continue;
+            }
             w.fill(
                 IVec3::new(x, g, z),
-                IVec3::new((x + 1).min(hi.x), top, (z + 1).min(hi.z)),
+                IVec3::new((x + 3).min(hi.x), top, (z + 3).min(hi.z)),
                 CONCRETE,
             );
         }
+    }
+    // Escalier droit d'étage en étage, le long du mur ouest : sans ça, on
+    // entrait au rez-de-chaussée et on ne pouvait monter nulle part.
+    {
+        let rise_total = top - g;
+        let mut base = g;
+        while base < top {
+            let rise = (base + storey).min(top) - base;
+            for st in 0..rise {
+                let x = stair_x0 + st * 2;
+                w.fill(
+                    IVec3::new(x, base + st, stair_z),
+                    IVec3::new(x + 2, base + st + 1, stair_z + 3),
+                    CONCRETE,
+                );
+            }
+            let _ = rise_total;
+            base += storey;
+        }
+    }
+    // Entrée : porche ouvert au rez-de-chaussée, face sud — avant, la tour
+    // était une boîte fermée, on ne pouvait pas rentrer dedans.
+    {
+        let door_x = lo.x + 4;
+        w.empty(
+            IVec3::new(door_x, g - 1, lo.z - 1),
+            IVec3::new(door_x + 6, g + 3, lo.z + 3),
+        );
+        // Parvis intérieur dégagé devant la porte.
+        w.empty(
+            IVec3::new(door_x - 1, g, lo.z - 1),
+            IVec3::new(door_x + 7, g + 2, lo.z + 8),
+        );
     }
     // Toit : dalle, héliport, balises.
     w.fill(IVec3::new(lo.x, y, lo.z), IVec3::new(hi.x, y + 2, hi.z), CONCRETE_DARK);
@@ -1031,7 +1073,9 @@ fn houses(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) {
             storey: 9,
             window: 3,
             spacing: 6,
-            stairs: false,
+            // Escalier intérieur : les maisons à un étage ne servaient
+            // qu'à monter sur le toit.
+            stairs: true,
         };
         let storeys = rng.range(1, 2);
         building(
