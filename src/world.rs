@@ -442,23 +442,28 @@ impl VoxelWorld {
         const INF: u32 = u32::MAX;
         let mut dist: Vec<u32> = vec![INF; total];
         let mut solid: Vec<bool> = vec![false; total];
+        // Poids local : combien de blocs pleins au-dessus dans la même
+        // colonne (ce que ce pilier soutient « par ici »).
+        let mut load: Vec<u32> = vec![0; total];
         let mut heap: BinaryHeap<Reverse<(u32, i32, i32, i32)>> = BinaryHeap::new();
         let mut cells: Vec<IVec3> = Vec::new();
         for x in r0.x..r1.x {
             for z in r0.z..r1.z {
                 let edge_xz = x == r0.x || x == r1.x - 1 || z == r0.z || z == r1.z - 1;
-                for y in r0.y..r1.y {
+                let mut above: u32 = 0;
+                for y in (r0.y..r1.y).rev() {
                     let c = IVec3::new(x, y, z);
-                    if !self.is_solid(c) {
-                        continue;
-                    }
                     let i = index(c);
-                    solid[i] = true;
-                    cells.push(c);
-                    let edge_top = y == r1.y - 1;
-                    if y < ground || edge_xz || edge_top {
-                        dist[i] = 0;
-                        heap.push(Reverse((0, x, y, z)));
+                    if self.is_solid(c) {
+                        solid[i] = true;
+                        load[i] = above.min(24);
+                        cells.push(c);
+                        above += 1;
+                        let edge_top = y == r1.y - 1;
+                        if y < ground || edge_xz || edge_top {
+                            dist[i] = 0;
+                            heap.push(Reverse((0, x, y, z)));
+                        }
                     }
                 }
             }
@@ -485,8 +490,11 @@ impl VoxelWorld {
                     continue;
                 }
                 let step = if o.y > 0 {
-                    // n est au-dessus de u : posé dessus.
-                    1
+                    // n est au-dessus de u : u porte n. Le poids au-dessus
+                    // (load) renchérit la pose : une colonne qui soutient
+                    // 20 blocs ne tient pas aussi loin qu'une qui en
+                    // soutient 2.
+                    1 + load[ni] / 8
                 } else if o.y < 0 {
                     // n est sous u : suspendu à u.
                     28
