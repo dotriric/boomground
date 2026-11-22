@@ -158,6 +158,9 @@ pub struct VoxelWorld {
     pub doors: Vec<Door>,
     /// Voitures garées : coin minimal de leur boîte (5 × 6 × 11 voxels).
     pub cars: Vec<IVec3>,
+    /// Lampes posées dans le monde (avec doublons possibles ; le consommateur
+    /// revérifie `is_solid` + matériau).
+    pub lamps: Vec<IVec3>,
 }
 
 /// Une porte : ses voxels passent de `closed` à `open` (et inversement),
@@ -212,6 +215,7 @@ impl VoxelWorld {
             dirty_chunks: HashSet::new(),
             doors: Vec::new(),
             cars: Vec::new(),
+            lamps: Vec::new(),
         }
     }
 
@@ -308,6 +312,11 @@ impl VoxelWorld {
                 self.alive += 1;
             }
             ch.mat.set(i, material);
+            // Registre des lampes : l'éclairage nocturne n'a plus à balayer
+            // toute la carte pour les trouver (et atteint celles des tours).
+            if material == mat::LAMP {
+                self.lamps.push(c);
+            }
         } else {
             let Some(ch) = self.chunks[k].as_mut() else { return };
             if ch.solid[i >> 6] & bit == 0 {
@@ -456,7 +465,7 @@ impl VoxelWorld {
                     let i = index(c);
                     if self.is_solid(c) {
                         solid[i] = true;
-                        load[i] = above.min(24);
+                        load[i] = above.min(32);
                         cells.push(c);
                         above += 1;
                         let edge_top = y == r1.y - 1;
@@ -494,7 +503,7 @@ impl VoxelWorld {
                     // (load) renchérit la pose : une colonne qui soutient
                     // 20 blocs ne tient pas aussi loin qu'une qui en
                     // soutient 2.
-                    1 + load[ni] / 8
+                    1 + load[ni].saturating_sub(8) / 8
                 } else if o.y < 0 {
                     // n est sous u : suspendu à u.
                     28
@@ -588,6 +597,7 @@ impl VoxelWorld {
         self.chunks.iter_mut().for_each(|c| *c = None);
         self.doors.clear();
         self.cars.clear();
+        self.lamps.clear();
         self.alive = 0;
         self.total = 0;
         self.dirty_chunks.clear();

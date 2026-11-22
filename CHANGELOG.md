@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.8.0 (en test)
+
+- **Gratte-ciel réparés** :
+  - **colonnade porteuse complète** (poteaux béton 3×3 tous les 14 voxels,
+    aucun coin laissé libre) + calcul du poids avec seuil : la tour ne
+    s'effondre plus quand on casse une fenêtre ;
+  - **façade sur toute la hauteur de l'étage** : il n'y a plus de rangée
+    vide d'un bloc entre deux étages ;
+  - **escalier intérieur** en épingle (1 voxel de montée par voxel
+    d'avancée, franchissable) qui monte étage par étage jusqu'au toit ;
+  - **entrée ouverte** : porche élargi au rez-de-chaussée avec une lampe
+    au-dessus de la porte ;
+  - **luminaires à chaque étage** : la tour est éclairée de l'intérieur
+    la nuit (fenêtres allumées vues de dehors) ;
+  - les tours se génèrent **après** les accessoires de rue : plus de
+    bouche d'incendie ou de poteau à l'intérieur.
+- **Registre des lampes** dans le monde : l'éclairage nocturne ne balaie
+  plus des millions de voxels pour trouver les lampes (et atteint celles
+  des tours, à plus de 8 m de haut).
+
 ## 1.8.0
 
 - **Cycle jour/nuit** : une journée dure 10 minutes (départ 9 h 30), le
