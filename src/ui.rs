@@ -41,9 +41,28 @@ pub const BUTTON: Color = Color::srgba(0.15, 0.175, 0.235, 0.98);
 #[derive(Resource, Clone)]
 pub struct UiFont(pub Handle<Font>);
 
+/// Logo Discord du bouton « rejoindre le serveur » (assets/icon/discord.png).
+#[derive(Resource, Clone)]
+pub struct DiscordIcon(pub Handle<Image>);
+
 pub fn setup_font(mut commands: Commands, mut fonts: ResMut<Assets<Font>>) {
     let bytes = include_bytes!("../assets/fonts/ui.ttf").to_vec();
     commands.insert_resource(UiFont(fonts.add(Font::from_bytes(bytes))));
+}
+
+/// Charge les petites images embarquées de l'interface.
+pub fn setup_icons(mut commands: Commands, mut images: ResMut<Assets<Image>>) {
+    let png: &[u8] = include_bytes!("../assets/icon/discord.png");
+    let image = Image::from_buffer(
+        png,
+        bevy::image::ImageType::Extension("png"),
+        bevy::image::CompressedImageFormats::NONE,
+        true,
+        bevy::image::ImageSampler::Default,
+        bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    )
+    .expect("assets/icon/discord.png illisible");
+    commands.insert_resource(DiscordIcon(images.add(image)));
 }
 
 /// Texte simple.

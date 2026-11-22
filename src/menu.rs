@@ -86,7 +86,12 @@ pub enum MenuAction {
     SkipInstall,
     Uninstall,
     Setting(SettingKind, i8),
+    /// Ouvre le serveur Discord dans le navigateur.
+    OpenDiscord,
 }
+
+/// Invitation du serveur Discord du jeu.
+pub const DISCORD_URL: &str = "https://discord.gg/M8CnT2MBS6";
 
 /// Réglage modifiable par −/+.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -402,8 +407,9 @@ fn mode_card(parent: &mut ChildSpawnerCommands, font: &UiFont, mode: Mode) {
         });
 }
 
-pub fn setup(mut commands: Commands, font: Res<UiFont>, settings: Res<Settings>) {
+pub fn setup(mut commands: Commands, font: Res<UiFont>, settings: Res<Settings>, icon: Res<ui::DiscordIcon>) {
     let font = font.into_inner().clone();
+    let icon = icon.into_inner().clone();
     commands.insert_resource(MenuState::default());
 
     // ------------------------------------------------------------------
@@ -536,6 +542,38 @@ pub fn setup(mut commands: Commands, font: Res<UiFont>, settings: Res<Settings>)
                     ui::wide_button(44.0, Color::srgba(0.35, 0.08, 0.08, 0.85)),
                 ))
                 .with_child(ui::label(&font, "Quitter le jeu", 17.0, ui::TEXT));
+                // Serveur Discord : logo + lien, toujours visible en bas de
+                // colonne.
+                side.spawn((
+                    MenuAction::OpenDiscord,
+                    ui::button_with(
+                        Node {
+                            width: Val::Percent(100.0),
+                            height: px(44.0),
+                            margin: UiRect::top(px(8.0)),
+                            align_items: AlignItems::Center,
+                            justify_content: JustifyContent::FlexStart,
+                            padding: UiRect::left(px(16.0)),
+                            column_gap: px(10.0),
+                            ..default()
+                        },
+                        ui::BUTTON,
+                    ),
+                ))
+                .with_children(|b| {
+                    b.spawn((
+                        ImageNode {
+                            image: icon.0.clone(),
+                            ..default()
+                        },
+                        Node {
+                            width: px(26.0),
+                            height: px(26.0),
+                            ..default()
+                        },
+                    ));
+                    b.spawn(ui::label(&font, "Discord", 17.0, ui::TEXT));
+                });
                 side.spawn((
                     ui::text(&font, format!("v{}", install::VERSION), 13.0, ui::MUTED),
                     Node {
@@ -1201,6 +1239,43 @@ pub fn lobby_code(lobby: &Lobby) -> String {
 }
 
 /// Copie un texte dans le presse-papiers du système.
+/// Ouvre un lien dans le navigateur du système (bureau uniquement ;
+/// sur Android on retombe sur une copie dans le presse-papiers).
+fn open_link(url: &str) -> bool {
+    #[cfg(target_os = "android")]
+    {
+        let _ = url;
+        return false;
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        use std::process::{Command, Stdio};
+        let candidates: &[(&str, &[&str])] = if cfg!(windows) {
+            &[("cmd", &["/C", "start", "", url])]
+        } else if cfg!(target_os = "macos") {
+            &[("open", &[url])]
+        } else {
+            &[("xdg-open", &[url]), ("x-www-browser", &[url]), ("firefox", &[url])]
+        };
+        for (program, args) in candidates {
+            let mut cmd = Command::new(program);
+            cmd.args(*args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null());
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x0800_0000);
+            }
+            if cmd.spawn().is_ok() {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 fn copy_to_clipboard(text: &str) -> bool {
     use std::io::Write;
     use std::process::{Command, Stdio};
@@ -1384,6 +1459,15 @@ pub fn actions(
                 leave_online(&mut net, &mut lobby, &mut game);
                 game.phase = Phase::Menu;
                 state.tab = Tab::Multi;
+            }
+            MenuAction::OpenDiscord => {
+                if open_link(DISCORD_URL) {
+                    toasts.push(crate::i18n::t("Le lien Discord s'ouvre dans ton navigateur."));
+                } else if copy_to_clipboard(DISCORD_URL) {
+                    toasts.push(crate::i18n::tf("Lien copié : {}", &[&DISCORD_URL]));
+                } else {
+                    toasts.push(DISCORD_URL.to_string());
+                }
             }
             MenuAction::CopyCode => {
                 let code = lobby_code(&lobby);
