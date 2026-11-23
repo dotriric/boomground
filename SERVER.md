@@ -65,7 +65,7 @@ priment sur le fichier.
   chute, les portes et les joueurs (position, santé, argent, munitions). Il est sauvegardé
   automatiquement, par la commande `save`, et à l'arrêt (`stop`).
 - **Journal** : `logs/latest.log` (l'ancien est archivé en `logs/AAAA-MM-JJ-N.log`), dans le
-  style Minecraft :
+ :
   ```
   [14:03:22] [Server thread/INFO]: Alex a rejoint la partie (#1, 192.168.1.20)
   [14:05:10] [Server thread/INFO]: Sam a été tué par Alex (balle)
