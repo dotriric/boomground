@@ -77,7 +77,7 @@
   traverse la rue) ; le jour, seul l'éclat émissif subsiste.
 - **Nuages d'orage** : une nappe sombre recouvre le ciel quand il pleut
   ou qu'une tornade approche, au lieu d'un bleu éclatant.
-- **Zoom (C)** — style OptiFine/Zoomify : maintenir **C** resserre le
+- **Zoom (C)** : maintenir **C** resserre le
   champ partout (à pied, en vol, en voiture), la sensibilité souris
   suit le zoom pour viser. La vue de voiture passe à **X** ; en vol,
   Ctrl seul fait descendre.
@@ -421,7 +421,7 @@
   sauvegarde / chargement en solo et sur serveur (automatique et à l'arrêt).
 - **server.conf** : ~25 réglages (armes interdites, construction, portes, dégâts de chute,
   effondrement, argent de départ, sauvegarde automatique, anti-triche…).
-- **Journal du serveur** style Minecraft (`logs/latest.log`), console avec commandes.
+- **Journal du serveur** (`logs/latest.log`), console avec commandes.
 - **AppImage** : plus seulement portable, elle s'installe (menu des applications,
   commande `boomground`).
 - **Rendu** : occlusion ambiante, texture de voxel (grain, biseau, joints) avec mipmaps,
@@ -430,8 +430,7 @@
 
 ## 1.2.0
 
-- Carte ~30 fois plus grande (845 × 845 m), stockage par morceaux alloués à la demande,
-  chargement progressif du maillage.
+- Carte ~30 fois plus grande (taille « Grande » : 33 × 33 pâtés, ~845 × 845 m), stockage par morceaux alloués à la demande.
 - Quartiers : centre-ville de tours, quartiers mixtes, banlieue.
 - Intérieurs meublés (tables, chaises, bureaux, canapés, étagères, plafonniers) et
   mobilier urbain (lampadaires, bancs, bouches d'incendie, poubelles, feux tricolores).

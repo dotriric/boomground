@@ -1,6 +1,6 @@
 # BoomGround
 
-Bac à sable de destruction en voxels, façon *Teardown*, écrit en Rust avec Bevy.
+Bac à sable de destruction en voxels, écrit en Rust avec Bevy — le jeu s'inspire originalement de *Teardown*.
 **Tout est destructible** (sauf le socle) : immeubles, vitres, voitures, arbres, routes, sol.
 Quand un pilier saute, ce qu'il portait s'écroule vraiment.
 
@@ -25,7 +25,7 @@ Détails : [Installation](#installation).
 
 ## Ce que contient le jeu
 
-- **Une grande ville** de 845 × 845 m (33 × 33 pâtés de maisons), générée depuis une *seed* :
+- **Une ville** générée depuis une *seed*, dont la taille se choisit au menu : Petite (9 × 9 pâtés, ~230 × 230 m), Moyenne (17 × 17, ~435 × 435 m) ou Grande (33 × 33, ~845 × 845 m) :
   centre-ville de tours, quartiers d'immeubles, banlieue de maisons, entrepôts, parcs,
   parkings, chantiers.
 - **Intérieurs meublés** : tables et chaises, bureaux, canapés, étagères, plafonniers,
@@ -35,7 +35,7 @@ Détails : [Installation](#installation).
 - **Construction** : l'outil *Blocs* pose des blocs de bois, brique, béton, métal, verre,
   plâtre, tuile, noir ou lumière.
 - **Physique** : chaque voxel doit être relié au sol par un chemin qui tient. Un pilier porte
-  tout, mais à l'horizontale la portée dépend du matériau (béton ≈ 5 m, bois ≈ 5 m, brique
+  tout, mais à l'horizontale la portée dépend du matériau (béton ≈ 6 m, bois ≈ 5 m, brique
   ≈ 4 m, verre ≈ 2 m). Un plancher sans pilier, une façade au-dessus d'un grand trou, un
   porte-à-faux trop long : **tombent**. L'ensemble détaché devient un corps rigide (masse,
   centre de masse, inertie, 9,81 m/s²) qui bascule, heurte le monde, se casse à l'impact et
@@ -54,11 +54,11 @@ Détails : [Installation](#installation).
   onglet Jouer → *Mondes sauvegardés*. Les serveurs sauvegardent aussi automatiquement.
 - **Une seule logique de jeu** : le solo lance un serveur privé local. Tout ce qui existe
   en solo (physique, dégâts, argent, portes, blocs, sauvegardes) existe donc en ligne.
-- **76 outils** rangés en 6 catégories (touches `1`–`6`) : mêlée, pistolets, fusils, armes
+- **26 outils** rangés en 6 catégories (touches `1`–`6`) : mêlée, pistolets, fusils, armes
   lourdes, explosifs, outils. Lance-flammes, extincteur, mines, napalm, canon, Tsar…
 - **Véhicules** : monte dans une voiture garée avec `F` et conduis-la (`ZQSD`, `Espace`
   frein, `H` klaxon). Le moteur est un vrai corps rigide : une voiture trop abîmée ne roule plus.
-- **Multijoueur** : liste de serveurs enregistrés (comme Minecraft), lobbys sur le réseau
+- **Multijoueur** : liste de serveurs enregistrés, lobbys sur le réseau
   local, code via Internet (UPnP), serveur dédié, **chat** (`T`) modéré et **voix de proximité**
   (suppression de bruit, limiteur).
 - **Discord Rich Presence** : solo (mode, voxels détruits) ou serveur (nom, joueurs).
@@ -112,7 +112,7 @@ Les explosions s'enchaînent : une bombe prise dans un souffle explose à son to
 
 - Dans le menu, la seed est un nombre ou un mot (`paris` donne toujours la même ville).
   « Hasard » en tire une nouvelle.
-- La carte se charge progressivement autour de toi au démarrage (quelques secondes).
+- La ville est entièrement générée et maillée avant de jouer (quelques secondes au démarrage).
 
 ## Réglages
 
