@@ -1,6 +1,6 @@
 # NOTICE — BoomGround
 
-Copyright (c) 2026 Riric65 et les contributeurs.
+Copyright (c) 2026 DotRiric et les contributeurs.
 
 BoomGround est un logiciel libre : le code, les assets et la documentation
 du dépôt officiel sont sous **GNU GPL-3.0-or-later** (voir [LICENSE](LICENSE)).
@@ -25,7 +25,7 @@ limite que la marque, pas le logiciel.
 
 ## Ressources de tiers embarquées
 
-Ces fichiers ne sont PAS de Riric65 et gardent leurs licences d'origine
+Ces fichiers ne sont PAS de DotRiric et gardent leurs licences d'origine
 (qui sont libres et compatibles GPL) :
 
 - `assets/fonts/ui.ttf` — police **Liberation Sans**, SIL Open Font

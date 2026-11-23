@@ -413,6 +413,25 @@ impl Sim {
             return None;
         }
         let body = self.bodies.last_mut()?;
+        // Symétrise le corps : le modèle voxel d'une voiture est rarement
+        // symétrique gauche/droite (pare-brise, capot…), et un centre de
+        // masse décalé + une inertie avec termes croisés faisaient tirer
+        // la voiture d'un côté en ligne droite. COM au centre géométrique
+        // et inertie de boîte pleine (diagonale) => aucun couple parasite.
+        {
+            let d = body.grid.dims.as_vec3() * crate::world::VOXEL;
+            let new_com = Vec3::new(d.x * 0.5, body.com.y, d.z * 0.5);
+            let shift = body.rot * (new_com - body.com);
+            body.pos += shift;
+            body.com = new_com;
+            let m = body.mass;
+            let box_inertia = Mat3::from_diagonal(Vec3::new(
+                m * (d.y * d.y + d.z * d.z) / 12.0,
+                m * (d.x * d.x + d.z * d.z) / 12.0,
+                m * (d.x * d.x + d.y * d.y) / 12.0,
+            ));
+            body.inv_inertia = box_inertia.inverse();
+        }
         body.vehicle = Some(Vehicle {
             orig,
             throttle: 0.0,

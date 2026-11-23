@@ -11,7 +11,7 @@ Quand un pilier saute, ce qu'il portait s'écroule vraiment.
 
 ## Télécharger et jouer
 
-Les fichiers précompilés sont dans les [releases](https://github.com/Riric65/boomground/releases).
+Les fichiers précompilés sont dans les [releases](https://github.com/dotriric/boomground/releases).
 
 | Système | Jeu | Serveur dédié (facultatif) |
 |---|---|---|

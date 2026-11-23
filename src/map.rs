@@ -1024,84 +1024,60 @@ fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> b
     w.fill(IVec3::new(lo.x, y, lo.z), IVec3::new(hi.x, y + 2, hi.z), CONCRETE_DARK);
     let (cx, cz) = ((lo.x + hi.x) / 2, (lo.z + hi.z) / 2);
     w.fill(IVec3::new(cx - 4, y + 2, cz - 4), IVec3::new(cx + 4, y + 3, cz + 4), CONCRETE);
-    // Escalier : deux volées en épingle par étage dans la travée sud-ouest
-    // (entre les poteaux de la colonnade, qui reste complète) — 1 voxel de
-    // montée par voxel d'avancée, franchissable (STEP = 0,62 m > 0,4 m).
+    // Escalier : cage verticale dans la travée sud-ouest (entre les
+    // poteaux de la colonnade, qui reste complète). À chaque étage, la
+    // dalle est percée DEVANT l'escalier (là où on monte et où passe la
+    // tête) et les marches traversent ce trou : 1 voxel de montée par
+    // voxel, franchissable (STEP = 0,62 m > 0,4 m).
     {
         let sx = lo.x + 4;
-        let z_a = lo.z + 4;
-        let z_b = lo.z + 10;
-        // Trou dans le plafond au sommet de chaque volée : on perce la dalle
-        // (2 rangées) dans le couloir d'arrivée, là où la volée suivante
-        // passe — sans toucher au reste de la dalle (l'escalier reste
-        // accroché à la structure).
-        let mut base = g;
-        let mut east = true;
-        while base < top {
-            let rise = (base + storey).min(top) - base;
-            // Les marches partent du niveau du plancher (base+2) : chaque
-            // volée perce la dalle suivante (les marches écrasent les
-            // cellules de dalle dans la cage = la trémie) et la volée
-            // suivante repart là où la précédente s'arrête.
-            for st in 0..rise {
-                let x = if east { sx + st } else { sx + rise - 1 - st };
-                let z = if east { z_a } else { z_b };
-                w.fill(
-                    IVec3::new(x, base + 1 + st, z),
-                    IVec3::new(x + 2, base + 2 + st, z + 3),
-                    CONCRETE,
-                );
-            }
-            // Percée dans la dalle de l'étage au sommet de la volée : on
-            // vide les 2 rangées de dalle au-dessus de la dernière marche
-            // (la marche elle-même reste, c'est le passage).
-            {
-                let x = if east { sx + rise - 1 } else { sx };
-                let z = if east { z_a } else { z_b };
-                w.empty(
-                    IVec3::new(x, base + rise, z),
-                    IVec3::new(x + 2, base + rise + 2, z + 3),
-                );
-            }
-            base += storey;
-            east = !east;
+        let sz = lo.z + 4;
+        // Trémies : trou de 2×3 dans chaque dalle (et le toit) au-dessus de
+        // la cage. On ne perce PAS le plancher du rez-de-chaussée : le pied
+        // de l'escalier repose dessus, sinon toute la cage serait en l'air.
+        let mut yy = g + storey;
+        while yy <= top {
+            w.empty(
+                IVec3::new(sx, yy, sz),
+                IVec3::new(sx + 2, (yy + 2).min(top + 2), sz + 3),
+            );
+            yy += storey;
+        }
+        // Marches dans la cage, du sol au toit : une colonne de marches
+        // 2×3, 1 voxel de montée par voxel (chaque marche repose sur la
+        // précédente, bien connectée), franchissable à la montée.
+        for y in g + 1..=top {
+            w.fill(IVec3::new(sx, y, sz), IVec3::new(sx + 2, y + 1, sz + 3), CONCRETE);
         }
     }
-    // Entrée : porche avec double porte battante, face sud. L'ouverture ne
-    // touche pas au plancher (seuil plein, on ne tombe pas dans un trou) :
-    // deux marches outside mènent au niveau du rez-de-chaussée.
+    // Entrée : porche avec une porte battante simple, centrée sur la face
+    // sud (hors de la cage d'escalier, dans la travée sud-est). Le seuil
+    // reste plein (pas de trou dans le sol) et deux marches mènent du
+    // parvis au niveau du rez-de-chaussée.
     {
-        let dx = lo.x + 4;
+        let dx = (lo.x + hi.x) / 2 - 2;
         // Murs du porche et toit (de part et d'autre de la porte).
         w.fill(IVec3::new(dx - 1, g, lo.z - 3), IVec3::new(dx, g + 8, lo.z + 1), CONCRETE_DARK);
         w.fill(IVec3::new(dx + 4, g, lo.z - 3), IVec3::new(dx + 5, g + 8, lo.z + 1), CONCRETE_DARK);
         w.fill(IVec3::new(dx - 1, g + 8, lo.z - 3), IVec3::new(dx + 5, g + 9, lo.z + 1), CONCRETE_DARK);
-        // Seuil : le pied de la porte reste plein (pas de trou dans le sol).
+        // Seuil plein + deux marches devant le porche.
         w.fill(IVec3::new(dx, g, lo.z), IVec3::new(dx + 4, g + 2, lo.z + 1), CONCRETE);
-        // Deux marches devant le porche (parvis à g-1 -> plancher à g+2).
         w.fill(IVec3::new(dx - 1, g, lo.z - 3), IVec3::new(dx + 5, g + 1, lo.z - 1), CONCRETE);
         w.fill(IVec3::new(dx - 1, g + 1, lo.z - 1), IVec3::new(dx + 5, g + 2, lo.z), CONCRETE);
-        // Ouverture de la porte dans la façade (6 de haut, au-dessus du seuil).
+        // Ouverture de la porte dans la façade (4 de large, 6 de haut).
         w.empty(IVec3::new(dx, g + 2, lo.z), IVec3::new(dx + 4, g + 8, lo.z + 1));
-        // Double porte battante : deux vantaux de 2 voxels qui s'ouvrent
-        // vers l'intérieur (z = lo.z + 1, vide à ces hauteurs).
-        for leaf in 0..2 {
-            let mut closed = Vec::new();
-            let mut open = Vec::new();
-            let hinge = if leaf == 0 { dx } else { dx + 3 };
-            for j in 0..6 {
-                for i in 0..2 {
-                    let x = dx + leaf * 2 + i;
-                    let y = g + 2 + j;
-                    closed.push(IVec3::new(x, y, lo.z));
-                    // Ouvert à 90° : le vantail longe le mur intérieur,
-                    // pivot sur son montant extérieur.
-                    let (ox, oz) = if leaf == 0 { (hinge, lo.z + 1 + i) } else { (hinge, lo.z + 1 + (1 - i)) };
-                    open.push(IVec3::new(ox, y, oz));
-                }
+        // Porte battante simple, pivot sur le montant ouest, ouverte à 90°
+        // le long du mur intérieur (comme les portes des maisons).
+        let mut closed = Vec::new();
+        let mut open = Vec::new();
+        for j in 0..6 {
+            for i in 0..4 {
+                let y = g + 2 + j;
+                closed.push(IVec3::new(dx + i, y, lo.z));
+                open.push(IVec3::new(dx, y, lo.z + 1 + i));
             }
-            add_door(w, &closed, &open);
         }
+        add_door(w, &closed, &open);
         // Lampe sous le toit du porche.
         w.set(IVec3::new(dx + 1, g + 7, lo.z - 2), true, LAMP);
     }
