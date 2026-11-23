@@ -274,7 +274,7 @@ pub fn look(
     shop: Res<crate::shop::ShopState>,
     zoom_factor: Res<ZoomFactor>,
     mouse: Res<AccumulatedMouseMotion>,
-    buttons: Res<ButtonInput<MouseButton>>,
+    mut buttons: ResMut<ButtonInput<MouseButton>>,
     touch: Res<crate::touch::TouchState>,
     mut cursor: Single<&mut CursorOptions>,
     mut player: Query<(&mut Transform, &mut Body), With<Player>>,
@@ -303,6 +303,10 @@ pub fn look(
         return;
     }
     if buttons.just_pressed(MouseButton::Left) && cursor.grab_mode == CursorGrabMode::None {
+        // Le clic qui re-capture le curseur ne doit pas tirer dans le jeu
+        // la même image : on le consomme avant `weapon::act`.
+        buttons.clear_just_pressed(MouseButton::Left);
+        buttons.release(MouseButton::Left);
         grab(&mut cursor, true);
     }
     if cursor.grab_mode == CursorGrabMode::None {
@@ -328,6 +332,17 @@ pub fn look(
 
     transform.rotation = Quat::from_rotation_y(body.yaw);
     head_transform.rotation = Quat::from_rotation_x(body.pitch);
+}
+
+/// Capture le curseur en consommant le clic de souris qui a déclenché la
+/// reprise : sans ça, `weapon::act` (tournant après dans la même image)
+/// voyait encore le clic et « tapait dans le jeu » depuis le menu.
+pub fn grab_consume(cursor: &mut CursorOptions, buttons: &mut ButtonInput<MouseButton>, on: bool) {
+    if on {
+        buttons.clear_just_pressed(MouseButton::Left);
+        buttons.release(MouseButton::Left);
+    }
+    grab(cursor, on);
 }
 
 /// Capture (ou libère) le curseur. Sous Linux (X11), `Locked` n'existe pas :
@@ -436,7 +451,8 @@ pub fn move_player(
         let hi = world.origin + Vec3::new(size.x - HALF_W - 0.6, 0.0, size.z - HALF_W - 0.6);
         center.x = center.x.clamp(lo.x, hi.x);
         center.z = center.z.clamp(lo.z, hi.z);
-        center.y = center.y.clamp(crate::world::VOXEL + HEIGHT * 0.5, 70.0);
+        // Plus de plafond de vol : on monte jusqu'au sommet du monde.
+        center.y = center.y.clamp(crate::world::VOXEL + HEIGHT * 0.5, size.y - HEIGHT * 0.5 - 0.6);
         pos = center - Vec3::Y * HEIGHT * 0.5;
         transform.translation = pos;
         body.grounded = false;

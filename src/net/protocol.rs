@@ -19,7 +19,7 @@ pub const DEFAULT_PORT: u16 = 28431;
 pub const DISCOVERY_PORT: u16 = 28432;
 /// Version du protocole : deux versions différentes refusent de jouer
 /// ensemble (message clair plutôt que des paquets incompréhensibles).
-pub const PROTOCOL_VERSION: u16 = 9;
+pub const PROTOCOL_VERSION: u16 = 10;
 /// Nombre maximal de joueurs dans une partie.
 pub const MAX_PLAYERS: usize = 16;
 
@@ -55,6 +55,9 @@ pub enum Packet {
         yaw: f32,
         pitch: f32,
         weapon: u8,
+        /// Accroupi (0..=100) : la boîte du joueur est plus basse, le serveur
+        /// doit le savoir sinon il croit le joueur coincé et le renvoie.
+        crouch: u8,
     },
     /// Client → serveur : action d'arme (le serveur la vérifie).
     Hit {
@@ -76,6 +79,7 @@ pub enum Packet {
         yaw: f32,
         pitch: f32,
         weapon: u8,
+        crouch: u8,
     },
     /// Serveur → client : joueur parti.
     PlayerLeft { id: u16 },
@@ -301,12 +305,14 @@ impl Packet {
                 yaw,
                 pitch,
                 weapon,
+                crouch,
             } => {
                 w.u8(2);
                 w.vec3(*pos);
                 w.f32(*yaw);
                 w.f32(*pitch);
                 w.u8(*weapon);
+                w.u8(*crouch);
             }
             Packet::Hit {
                 kind,
@@ -338,6 +344,7 @@ impl Packet {
                 yaw,
                 pitch,
                 weapon,
+                crouch,
             } => {
                 w.u8(5);
                 w.u16(*id);
@@ -345,6 +352,7 @@ impl Packet {
                 w.f32(*yaw);
                 w.f32(*pitch);
                 w.u8(*weapon);
+                w.u8(*crouch);
             }
             Packet::PlayerLeft { id } => {
                 w.u8(6);
@@ -665,6 +673,7 @@ impl Packet {
                 yaw: cur.f32()?,
                 pitch: cur.f32()?,
                 weapon: cur.u8()?,
+                crouch: cur.u8()?,
             },
             3 => Packet::Hit {
                 kind: HitKind::from_tag(cur.u8()?)?,
@@ -688,6 +697,7 @@ impl Packet {
                 yaw: cur.f32()?,
                 pitch: cur.f32()?,
                 weapon: cur.u8()?,
+                crouch: cur.u8()?,
             },
             6 => Packet::PlayerLeft { id: cur.u16()? },
             7 => Packet::BombPlaced {

@@ -602,7 +602,7 @@ mod tests {
 
 /// Combien de lampes éclairent vraiment (le reste garde l'émissive, que
 /// le bloom fait rayonner quand même).
-const LIVE_LAMPS: usize = 40;
+const LIVE_LAMPS: usize = 64;
 
 /// Marqueur des pointes de lumière des lampes.
 #[derive(Component)]
@@ -726,7 +726,7 @@ pub fn daylight(
     // millions de voxels à chaque scan) : on ne garde que les plus proches,
     // en revérifiant qu'elles sont toujours en place.
     let mut best: Vec<(f32, Vec3)> = Vec::new();
-    const R_M2: f32 = 68.0 * 68.0; // ~68 m de rayon (les lampes éclairent à 80 m)
+    const R_M2: f32 = 110.0 * 110.0; // 110 m : toute la portée des PointLight
     for &c in &world.lamps {
         if !world.is_solid(c) || world.material(c) != crate::world::mat::LAMP {
             continue;

@@ -697,8 +697,11 @@ fn street_props(w: &mut VoxelWorld, rng: &mut MapRng) {
             if off > ROAD + WALK + 3 {
                 for side in [-1, 1] {
                     for along_z in [true, false] {
-                        // Trottoir : bord intérieur, côté `side`.
-                        let a = c + side * (ROAD + 1);
+                        // Trottoir : on se cale contre le bâti (bord extérieur
+                        // du trottoir) pour que les objets (poubelle 2×2,
+                        // lampadaire…) ne dépassent jamais sur la chaussée,
+                        // même du côté -1.
+                        let a = if side < 0 { c - (ROAD + WALK) } else { c + (ROAD + 1) };
                         let (x, z, toward) = if along_z {
                             (a, t, IVec3::new(-side, 0, 0))
                         } else {
@@ -765,11 +768,11 @@ fn lamp_post(w: &mut VoxelWorld, at: IVec3, toward: IVec3) {
         return;
     }
     w.fill(at, at + IVec3::new(1, 12, 1), FURN_METAL);
-    for i in 1..=3 {
+    for i in 1..=2 {
         w.set(at + IVec3::new(0, 11, 0) + toward * i, true, FURN_METAL);
     }
-    w.set(at + IVec3::new(0, 10, 0) + toward * 3, true, LAMP);
     w.set(at + IVec3::new(0, 10, 0) + toward * 2, true, LAMP);
+    w.set(at + IVec3::new(0, 10, 0) + toward, true, LAMP);
 }
 
 /// Banc : deux pieds et une assise de 4 voxels.
@@ -963,7 +966,9 @@ fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> b
         // dernière rangée restait vide et laissait un vide d'un bloc entre
         // deux étages. Bandes de fenêtres (5 rangées vitrées sur 8, meneaux
         // béton tous les 4 voxels).
-        let window = |yy: i32| (yy - y) % storey < 5;
+        // Fenêtres un bloc plus haut qu'avant : bande vitrée y+2..y+6,
+        // béton en y+1 (appui) et y+7 (allège au-dessus).
+        let window = |yy: i32| { let r = (yy - y) % storey; (2..7).contains(&r) };
         for x in lo.x..hi.x {
             let m = if x % 4 == 3 { CONCRETE_DARK } else { GLASS };
             for yy in y + 1..y1 {
@@ -1019,8 +1024,6 @@ fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> b
     w.fill(IVec3::new(lo.x, y, lo.z), IVec3::new(hi.x, y + 2, hi.z), CONCRETE_DARK);
     let (cx, cz) = ((lo.x + hi.x) / 2, (lo.z + hi.z) / 2);
     w.fill(IVec3::new(cx - 4, y + 2, cz - 4), IVec3::new(cx + 4, y + 3, cz + 4), CONCRETE);
-    w.set(IVec3::new(lo.x + 1, y + 3, lo.z + 1), true, LAMP);
-    w.set(IVec3::new(hi.x - 2, y + 3, hi.z - 2), true, LAMP);
     // Escalier : deux volées en épingle par étage dans la travée sud-ouest
     // (entre les poteaux de la colonnade, qui reste complète) — 1 voxel de
     // montée par voxel d'avancée, franchissable (STEP = 0,62 m > 0,4 m).
@@ -1032,34 +1035,60 @@ fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> b
         let mut east = true;
         while base < top {
             let rise = (base + storey).min(top) - base;
+            // Les marches partent du niveau du plancher (base+2) : chaque
+            // volée perce la dalle suivante (les marches écrasent les
+            // cellules de dalle dans la cage = la trémie) et la volée
+            // suivante repart là où la précédente s'arrête.
             for st in 0..rise {
                 let x = if east { sx + st } else { sx + rise - 1 - st };
                 let z = if east { z_a } else { z_b };
                 w.fill(
-                    IVec3::new(x, base + st, z),
-                    IVec3::new(x + 2, base + st + 1, z + 3),
+                    IVec3::new(x, base + 1 + st, z),
+                    IVec3::new(x + 2, base + 2 + st, z + 3),
                     CONCRETE,
                 );
             }
             base += storey;
             east = !east;
         }
-        // Dernière marche pour passer de l'escalier au toit.
-        w.fill(
-            IVec3::new(sx, top, z_a),
-            IVec3::new(sx + 2, top + 2, z_a + 3),
-            CONCRETE,
-        );
     }
-    // Entrée : porche ouvert au rez-de-chaussée, face sud, avec une lampe
-    // au-dessus de la porte — avant, la tour était une boîte fermée.
+    // Entrée : porche avec double porte battante, face sud. L'ouverture ne
+    // touche pas au plancher (seuil plein, on ne tombe pas dans un trou) :
+    // deux marches outside mènent au niveau du rez-de-chaussée.
     {
         let dx = lo.x + 4;
-        w.empty(
-            IVec3::new(dx - 1, g - 1, lo.z - 2),
-            IVec3::new(dx + 9, g + 6, lo.z + 3),
-        );
-        w.set(IVec3::new(dx + 3, g + 5, lo.z), true, LAMP);
+        // Murs du porche et toit (de part et d'autre de la porte).
+        w.fill(IVec3::new(dx - 1, g, lo.z - 3), IVec3::new(dx, g + 8, lo.z + 1), CONCRETE_DARK);
+        w.fill(IVec3::new(dx + 4, g, lo.z - 3), IVec3::new(dx + 5, g + 8, lo.z + 1), CONCRETE_DARK);
+        w.fill(IVec3::new(dx - 1, g + 8, lo.z - 3), IVec3::new(dx + 5, g + 9, lo.z + 1), CONCRETE_DARK);
+        // Seuil : le pied de la porte reste plein (pas de trou dans le sol).
+        w.fill(IVec3::new(dx, g, lo.z), IVec3::new(dx + 4, g + 2, lo.z + 1), CONCRETE);
+        // Deux marches devant le porche (parvis à g-1 -> plancher à g+2).
+        w.fill(IVec3::new(dx - 1, g, lo.z - 3), IVec3::new(dx + 5, g + 1, lo.z - 1), CONCRETE);
+        w.fill(IVec3::new(dx - 1, g + 1, lo.z - 1), IVec3::new(dx + 5, g + 2, lo.z), CONCRETE);
+        // Ouverture de la porte dans la façade (6 de haut, au-dessus du seuil).
+        w.empty(IVec3::new(dx, g + 2, lo.z), IVec3::new(dx + 4, g + 8, lo.z + 1));
+        // Double porte battante : deux vantaux de 2 voxels qui s'ouvrent
+        // vers l'intérieur (z = lo.z + 1, vide à ces hauteurs).
+        for leaf in 0..2 {
+            let mut closed = Vec::new();
+            let mut open = Vec::new();
+            let hinge = if leaf == 0 { dx } else { dx + 3 };
+            for j in 0..6 {
+                for i in 0..2 {
+                    let x = dx + leaf * 2 + i;
+                    let y = g + 2 + j;
+                    closed.push(IVec3::new(x, y, lo.z));
+                    // Ouvert à 90° : le vantail longe le mur intérieur,
+                    // pivot sur son montant extérieur.
+                    let (ox, oz) = if leaf == 0 { (hinge, lo.z + 1 + i) } else { (hinge, lo.z + 1 + (1 - i)) };
+                    open.push(IVec3::new(ox, y, oz));
+                }
+            }
+            add_door(w, &closed, &open);
+        }
+        // Lampe sous le toit du porche.
+        w.set(IVec3::new(dx + 1, g + 7, lo.z - 2), true, LAMP);
     }
     true
 }

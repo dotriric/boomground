@@ -20,6 +20,8 @@ pub struct RemotePlayer {
     pub last: Vec3,
     /// Phase du balancement des bras et des jambes.
     pub stride: f32,
+    /// Accroupi 0..=100 (reçu du serveur) : le corps est écrasé vers le sol.
+    pub crouch: u8,
 }
 
 /// Bras ou jambe d'un joueur distant, pivotant à l'épaule / la hanche.
@@ -261,6 +263,7 @@ pub fn send_state(
         yaw: body.yaw,
         pitch: body.pitch,
         weapon: game.weapon.tag(),
+        crouch: (body.crouch.clamp(0.0, 1.0) * 100.0) as u8,
     });
 }
 
@@ -323,7 +326,7 @@ pub fn receive(
     bomb_assets: Res<BombAssets>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
-    mut remotes: Query<(Entity, &RemotePlayer, &mut Transform)>,
+    mut remotes: Query<(Entity, &mut RemotePlayer, &mut Transform)>,
     tags: Query<(Entity, &NameTag)>,
     bombs: Query<(Entity, &crate::weapon::Bomb, &Transform), Without<RemotePlayer>>,
     ragdolls: Query<(Entity, &crate::vitals::Ragdoll)>,
@@ -629,14 +632,15 @@ pub fn receive(
                 break;
             }
             Packet::Player {
-                id, pos, yaw, pitch, ..
+                id, pos, yaw, pitch, crouch, ..
             } => {
                 let rotation = Quat::from_rotation_y(yaw);
                 match remotes.iter_mut().find(|(_, r, _)| r.id == id) {
-                    Some((_, _, mut t)) => {
+                    Some((_, mut r, mut t)) => {
                         // Lissage : les positions arrivent 20 fois/s.
                         t.translation = t.translation.lerp(pos, 0.6);
                         t.rotation = rotation;
+                        r.crouch = crouch;
                     }
                     None => {
                         let body = materials.add(StandardMaterial {
@@ -672,6 +676,7 @@ pub fn receive(
                                     id,
                                     last: pos,
                                     stride: 0.0,
+                                    crouch,
                                 },
                                 Transform::from_translation(pos).with_rotation(rotation),
                                 Visibility::default(),
@@ -908,11 +913,13 @@ pub fn update_nametags(
 /// avancent.
 pub fn animate_remotes(
     time: Res<Time>,
-    mut remotes: Query<(&mut RemotePlayer, &Transform, &Children)>,
+    mut remotes: Query<(&mut RemotePlayer, &mut Transform, &Children)>,
     mut limbs: Query<(&Limb, &mut Transform), Without<RemotePlayer>>,
 ) {
     let dt = time.delta_secs().max(1e-4);
-    for (mut remote, transform, children) in &mut remotes {
+    for (mut remote, mut transform, children) in &mut remotes {
+        // Accroupi : le corps est écrasé vers le sol (pivot aux pieds).
+        transform.scale.y = 1.0 - 0.25 * (remote.crouch as f32 / 100.0);
         let moved = transform.translation - remote.last;
         remote.last = transform.translation;
         let speed = Vec2::new(moved.x, moved.z).length() / dt;
