@@ -1031,6 +1031,10 @@ fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> b
         let sx = lo.x + 4;
         let z_a = lo.z + 4;
         let z_b = lo.z + 10;
+        // Trou dans le plafond au sommet de chaque volée : on perce la dalle
+        // (2 rangées) dans le couloir d'arrivée, là où la volée suivante
+        // passe — sans toucher au reste de la dalle (l'escalier reste
+        // accroché à la structure).
         let mut base = g;
         let mut east = true;
         while base < top {
@@ -1046,6 +1050,17 @@ fn skyscraper(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) -> b
                     IVec3::new(x, base + 1 + st, z),
                     IVec3::new(x + 2, base + 2 + st, z + 3),
                     CONCRETE,
+                );
+            }
+            // Percée dans la dalle de l'étage au sommet de la volée : on
+            // vide les 2 rangées de dalle au-dessus de la dernière marche
+            // (la marche elle-même reste, c'est le passage).
+            {
+                let x = if east { sx + rise - 1 } else { sx };
+                let z = if east { z_a } else { z_b };
+                w.empty(
+                    IVec3::new(x, base + rise, z),
+                    IVec3::new(x + 2, base + rise + 2, z + 3),
                 );
             }
             base += storey;
@@ -1250,9 +1265,6 @@ fn parking(w: &mut VoxelWorld, rng: &mut MapRng, min: IVec3, max: IVec3) {
             car(w, rng, IVec3::new(x + 1, min.y, max.z - 14));
         }
         x += 7;
-    }
-    if rng.chance(0.3) {
-        bunker(w, rng, min, max);
     }
 }
 
