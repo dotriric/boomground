@@ -1592,8 +1592,21 @@ mod structure_tests {
         }
         let c = target.expect("une tour avec du verre en hauteur");
         w.set(c, false, 0);
-        let fallen: usize = w.collapse_components(&[c]).iter().map(|v| v.len()).sum();
-        assert!(fallen <= 8, "casser une fenêtre de tour fait tomber {fallen} voxels");
+        let comps = w.collapse_components(&[c]);
+        let fallen: usize = comps.iter().map(|v| v.len()).sum();
+        if fallen > 8 {
+            let mut by_mat = std::collections::BTreeMap::new();
+            let mut lo = IVec3::splat(i32::MAX);
+            let mut hi = IVec3::splat(i32::MIN);
+            for comp in &comps {
+                for &cell in comp {
+                    *by_mat.entry(w.material(cell)).or_insert(0) += 1;
+                    lo = lo.min(cell);
+                    hi = hi.max(cell);
+                }
+            }
+            panic!("casser fenêtre {c:?} -> {fallen} voxels, mats {by_mat:?}, boîte {lo:?}..{hi:?}");
+        }
     }
 
     #[test]

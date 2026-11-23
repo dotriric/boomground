@@ -2,6 +2,11 @@
 
 ## 1.8.0 (en test)
 
+- **Escalier des tours** : trou percé dans la dalle au sommet de chaque
+  volée (2 rangées), là où la volée suivante passe — on ne bute plus contre
+  le plafond en haut de la volée.
+- **Parkings** : plus de bunker généré au milieu d'un parking.
+
 - **Stabilité des bâtiments corrigée** : monter le long d'un appui est
   gratuit (avant, le coût s'accumulait avec la hauteur : le haut des tours
   était « instable » et tout tombait au moindre coup, même à 2 blocs d'un
