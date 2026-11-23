@@ -64,7 +64,7 @@ impl bevy::app::Plugin for ClusterCapacity {
             return;
         };
         if let Some(gpu) = settings.gpu_clustering.as_mut() {
-            gpu.initial_index_list_capacity = gpu.initial_index_list_capacity.max(262_144);
+            gpu.initial_index_list_capacity = gpu.initial_index_list_capacity.max(524_288);
             gpu.initial_z_slice_list_capacity = gpu.initial_z_slice_list_capacity.max(16_384);
         }
     }

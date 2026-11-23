@@ -19,7 +19,7 @@ pub const VOXEL: f32 = 0.4;
 
 /// Dimensions de la grille (X, Y, Z) en cellules : 845 × 25 × 845 m
 /// (33 × 33 pâtés de maisons, soit ~30 fois l'ancienne carte).
-pub const GRID: [i32; 3] = [2112, 256, 2112];
+pub const GRID: [i32; 3] = [2112, 512, 2112];
 
 /// Taille par défaut de la carte : 33 × 33 pâtés de maisons.
 pub const DEFAULT_BLOCKS: i32 = 33;
@@ -406,12 +406,13 @@ impl VoxelWorld {
     /// (`is_prop`) forme ses propres ensembles.
     ///
     /// Modèle : chaque voxel doit être relié au sol par un chemin dont le
-    /// coût reste sous [`STABILITY`]. Monter depuis un appui coûte presque
-    /// rien (un pilier porte tout), avancer à l'horizontale coûte selon le
-    /// matériau (béton ≈ 5 m de portée, brique ≈ 3,5 m, bois et verre
-    /// moins), être suspendu coûte cher. Un plancher sans pilier ni mur
-    /// proche, une façade au-dessus d'un grand trou, un porte-à-faux trop
-    /// long : tombent. Calcul local, autour de `destroyed`.
+    /// coût reste sous [`STABILITY`]. Monter le long d'un appui est gratuit
+    /// (un pilier porte toute sa hauteur), avancer à l'horizontale coûte
+    /// selon le matériau (béton ≈ 6,4 m de portée, verre ≈ 1,6 m) plus une
+    /// légère charge proportionnelle au poids soutenu, être suspendu coûte
+    /// cher. Un plancher sans pilier ni mur proche, une façade au-dessus
+    /// d'un grand trou, un porte-à-faux trop long : tombent. Calcul local,
+    /// autour de `destroyed`.
     pub fn collapse_components(&mut self, destroyed: &[IVec3]) -> Vec<Vec<IVec3>> {
         use std::cmp::Reverse;
         use std::collections::BinaryHeap;
@@ -431,7 +432,11 @@ impl VoxelWorld {
         let r0 = IVec3::new((lo.x - MARGIN).max(0), (ground - 1).min(lo.y).max(0), (lo.z - MARGIN).max(0));
         let r1 = IVec3::new(
             (hi.x + MARGIN + 1).min(self.dims.x),
-            self.dims.y,
+            // Pas besoin de toute la hauteur du monde : les chemins de
+            // stabilité descendent vers le sol, 24 cellules au-dessus du
+            // trou suffisent (pour le poids local). Sinon la région dépasse
+            // le plafond de 6 M cellules et l'effondrement est ignoré.
+            (hi.y + MARGIN + 1).min(self.dims.y),
             (hi.z + MARGIN + 1).min(self.dims.z),
         );
         let size = r1 - r0;
@@ -499,16 +504,18 @@ impl VoxelWorld {
                     continue;
                 }
                 let step = if o.y > 0 {
-                    // n est au-dessus de u : u porte n. Le poids au-dessus
-                    // (load) renchérit la pose : une colonne qui soutient
-                    // 20 blocs ne tient pas aussi loin qu'une qui en
-                    // soutient 2.
-                    1 + load[ni].saturating_sub(8) / 8
+                    // n est au-dessus de u : u porte n. Monter le long d'un
+                    // appui ne coûte RIEN, quelle que soit la hauteur — un
+                    // pilier porte toute la tour (sinon le coût s'accumulait
+                    // avec la hauteur et le haut des tours était « instable »).
+                    0
                 } else if o.y < 0 {
                     // n est sous u : suspendu à u.
                     28
                 } else {
-                    span_cost(m) * 10
+                    // Portée horizontale : le poids soutenu au-dessus de n
+                    // renchérit légèrement le porte-à-faux.
+                    span_cost(m) * 10 + load[ni] / 16
                 };
                 // Les coûts sont en dixièmes : 1 = 0,1 par voxel porté.
                 let nd = d + step;
@@ -1119,7 +1126,7 @@ fn span_cost(material: u8) -> u32 {
     use mat::*;
     match material {
         METAL | FURN_METAL => 3,
-        CONCRETE | CONCRETE_DARK => 4,
+        CONCRETE | CONCRETE_DARK => 3,
         ROOF => 5,
         BRICK | BRICK_DARK => 5,
         MORTAR | PLASTER => 5,
@@ -1561,6 +1568,32 @@ mod structure_tests {
             checked += 1;
         }
         assert_eq!(checked, 8);
+    }
+
+    /// Casser une fenêtre haut dans une tour ne doit PAS faire tomber la
+    /// tour (régression : le coût de montée verticale s'accumulait avec la
+    /// hauteur, donc le haut des tours était « instable »).
+    #[test]
+    fn skyscraper_window_does_not_collapse_tower() {
+        let mut w = VoxelWorld::new();
+        w.rebuild(31415);
+        let g = crate::map::GROUND;
+        let mut target = None;
+        'outer: for y in (g + 120..w.dims.y - 4).rev() {
+            for x in 1..w.dims.x - 1 {
+                for z in 1..w.dims.z - 1 {
+                    let c = IVec3::new(x, y, z);
+                    if w.is_solid(c) && w.material(c) == mat::GLASS {
+                        target = Some(c);
+                        break 'outer;
+                    }
+                }
+            }
+        }
+        let c = target.expect("une tour avec du verre en hauteur");
+        w.set(c, false, 0);
+        let fallen: usize = w.collapse_components(&[c]).iter().map(|v| v.len()).sum();
+        assert!(fallen <= 8, "casser une fenêtre de tour fait tomber {fallen} voxels");
     }
 
     #[test]

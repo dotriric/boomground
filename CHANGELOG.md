@@ -2,6 +2,33 @@
 
 ## 1.8.0 (en test)
 
+- **Stabilité des bâtiments corrigée** : monter le long d'un appui est
+  gratuit (avant, le coût s'accumulait avec la hauteur : le haut des tours
+  était « instable » et tout tombait au moindre coup, même à 2 blocs d'un
+  pilier). Le poids soutenu renchérit légèrement la portée horizontale.
+  La zone de calcul d'effondrement est bornée en hauteur (sinon elle
+  dépassait son plafond et l'effondrement était ignoré sur les grandes
+  cartes hautes).
+- **Gratte-ciel** : fenêtres décalées d'un bloc vers le haut, plus de
+  balises lumineuses au-dessus du toit, escalier réparé (les volées
+  enchaînent vraiment d'étage en étage avec la trémie dans chaque dalle),
+  et **vraie entrée** : porche avec double porte battante (deux vantaux qui
+  pivotent chacun sur son montant), seuil plein (plus de trou dans le sol)
+  et deux marches devant.
+- **Lampadaires** : les 64 lampes les plus proches dans un rayon de 110 m
+  (toute la portée des lumières) sont allumées la nuit, contre 40 à 68 m.
+- **Menu** : le clic qui re-capture le curseur (bouton « Reprendre », clic
+  pour re-focus) ne tire plus dans le jeu la même image.
+- **Limite de hauteur supprimée** : le monde fait 512 voxels de haut
+  (204 m) et le vol n'est plus plafonné à 70 m.
+- **Props de rue** : les objets ne dépassent plus sur la chaussée (la
+  poubelle 2×2 du côté -1 mordait sur la route) ; bras des lampadaires
+  raccourci.
+- **Accroupi (Ctrl) en réseau** : l'état accroupi est transmis au serveur
+  (protocole v10) — la boîte de collision serveur baisse en conséquence, il
+  ne renvoie plus le joueur qui se baisse sous un plafond bas — et les
+  autres joueurs voient le personnage écrasé.
+
 - **Gratte-ciel réparés** :
   - **colonnade porteuse complète** (poteaux béton 3×3 tous les 14 voxels,
     aucun coin laissé libre) + calcul du poids avec seuil : la tour ne

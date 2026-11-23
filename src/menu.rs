@@ -1321,6 +1321,7 @@ fn field_value<F: bevy::ecs::query::QueryFilter>(q: &Query<&mut TextField, F>) -
 #[allow(clippy::too_many_arguments, clippy::type_complexity)]
 pub fn actions(
     actions: Query<&MenuAction, Added<Pressed>>,
+    mut mbuttons: ResMut<ButtonInput<MouseButton>>,
     mut state: ResMut<MenuState>,
     mut game: ResMut<GameState>,
     mut net: ResMut<NetClient>,
@@ -1348,7 +1349,7 @@ pub fn actions(
             MenuAction::Resume => {
                 if game.started {
                     game.phase = Phase::Playing;
-                    crate::player::grab(&mut cursor, true);
+                    crate::player::grab_consume(&mut cursor, &mut mbuttons, true);
                 }
             }
             MenuAction::Leave => {
@@ -1370,7 +1371,7 @@ pub fn actions(
                 let seed_text = field_value(&fields.p0());
                 let name = field_value(&fields.p2());
                 match launch_solo(&mut net, &mut lobby, &mut game, &name, &seed_text, state.mode, None, state.map_blocks) {
-                    Ok(_) => crate::player::grab(&mut cursor, true),
+                    Ok(_) => crate::player::grab_consume(&mut cursor, &mut mbuttons, true),
                     Err(e) => state.status = e,
                 }
             }
@@ -1378,7 +1379,7 @@ pub fn actions(
                 let name = field_value(&fields.p2());
                 if let Some((stem, path)) = state.worlds.get(i).cloned() {
                     match launch_solo(&mut net, &mut lobby, &mut game, &name, "", state.mode, Some((stem, path)), state.map_blocks) {
-                        Ok(_) => crate::player::grab(&mut cursor, true),
+                        Ok(_) => crate::player::grab_consume(&mut cursor, &mut mbuttons, true),
                         Err(e) => state.status = e,
                     }
                 }
@@ -1589,6 +1590,7 @@ pub fn actions(
 #[allow(clippy::too_many_arguments)]
 pub fn flow(
     keys: Res<ButtonInput<KeyCode>>,
+    mut mbuttons: ResMut<ButtonInput<MouseButton>>,
     mut game: ResMut<GameState>,
     mut state: ResMut<MenuState>,
     mut net: ResMut<NetClient>,
@@ -1614,7 +1616,7 @@ pub fn flow(
     if game.phase == Phase::Lobby && lobby.started {
         game.phase = Phase::Playing;
         game.started = true;
-        crate::player::grab(&mut cursor, true);
+        crate::player::grab_consume(&mut cursor, &mut mbuttons, true);
         toasts.push("La partie commence !");
     }
 
@@ -1628,7 +1630,7 @@ pub fn flow(
             Phase::Playing if !shop.open => game.phase = Phase::Menu,
             Phase::Menu if game.started => {
                 game.phase = Phase::Playing;
-                crate::player::grab(&mut cursor, true);
+                crate::player::grab_consume(&mut cursor, &mut mbuttons, true);
             }
             _ => {}
         }

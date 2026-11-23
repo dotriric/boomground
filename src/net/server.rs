@@ -146,6 +146,10 @@ struct Client {
     yaw: f32,
     pitch: f32,
     weapon: u8,
+    /// Accroupi 0..=100 (dernier état reçu) : la boîte de collision serveur
+    /// doit suivre, sinon un joueur accroupi sous un plafond bas est
+    /// « coincé » côté serveur et renvoyé (rollback).
+    crouch: u8,
     tokens: f32,
     last_refill: Instant,
     joined: bool,
@@ -372,6 +376,7 @@ fn new_client(stream: TcpStream, addr: IpAddr, rules: &Rules, mode: u8) -> Clien
         yaw: 0.0,
         pitch: 0.0,
         weapon: 0,
+        crouch: 0,
         tokens: BUCKET,
         last_refill: now,
         joined: false,
@@ -1664,6 +1669,7 @@ fn serve(mut server: ResMut<ServerState>, time: Res<Time>) {
                         yaw: c.yaw,
                         pitch: c.pitch,
                         weapon: c.weapon,
+                        crouch: c.crouch,
                     }
                     .encode()
                 })
@@ -1932,7 +1938,7 @@ fn handle(server: &mut ServerState, id: u16, packet: Packet) {
                 broadcast(server, None, &Packet::Start);
             }
         }
-        Packet::State { pos, yaw, pitch, weapon } => handle_state(server, id, pos, yaw, pitch, weapon),
+        Packet::State { pos, yaw, pitch, weapon, crouch } => handle_state(server, id, pos, yaw, pitch, weapon, crouch),
         Packet::Hit { kind, origin, dir, blast, shot } => handle_hit(server, id, kind, origin, dir, blast, shot),
         Packet::Place { cell, material } => {
             if !server.started || server.paused {
@@ -2720,7 +2726,7 @@ fn handle_join(server: &mut ServerState, id: u16, name: String, token: u64, vers
     send_roster(server);
 }
 
-fn handle_state(server: &mut ServerState, id: u16, pos: Vec3, yaw: f32, pitch: f32, weapon: u8) {
+fn handle_state(server: &mut ServerState, id: u16, pos: Vec3, yaw: f32, pitch: f32, weapon: u8, crouch: u8) {
     if !pos.is_finite() || !yaw.is_finite() || !pitch.is_finite() {
         suspect(server, id, 20.0, "position invalide");
         return;
@@ -2758,6 +2764,7 @@ fn handle_state(server: &mut ServerState, id: u16, pos: Vec3, yaw: f32, pitch: f
     }
     c.yaw = yaw;
     c.pitch = pitch;
+    c.crouch = crouch.min(100);
     if WeaponId::from_tag(weapon).tag() == weapon {
         if c.weapon != weapon {
             c.reload_until = None;
@@ -2809,11 +2816,14 @@ fn handle_state(server: &mut ServerState, id: u16, pos: Vec3, yaw: f32, pitch: f
     let dy = pos.y - c.pos.y;
     let too_fast = level > 0 && (horizontal > max_h * dt * 1.2 + 0.7 || dy > max_up * dt * 1.2 + 0.7);
     // Traversée de mur : la nouvelle boîte ne doit pas être dans du solide.
+    let crouch_f = (c.crouch as f32 / 100.0).clamp(0.0, 1.0);
     let torso = |p: Vec3| {
         // Boîte nettement plus petite que celle du client : la carte du
         // serveur peut avoir un voxel d'avance ou de retard (explosion,
         // porte, marche montée), et ça ne doit pas passer pour de la triche.
-        server.world.overlaps(p + Vec3::new(-0.18, 0.7, -0.18), p + Vec3::new(0.18, 1.4, 0.18))
+        // Accroupi, le haut de la boîte descend (comme côté client).
+        let top = 1.4 - 0.55 * crouch_f;
+        server.world.overlaps(p + Vec3::new(-0.18, 0.7, -0.18), p + Vec3::new(0.18, top, 0.18))
     };
     // Déjà coincé à la position acceptée (débris figés, porte, carte qui
     // change autour de lui) : le joueur essaie d'en sortir, ce n'est pas
