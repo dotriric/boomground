@@ -2,6 +2,20 @@
 
 ## 1.8.0 (en test)
 
+- **Escalier des tours** : cage verticale avec trémie DEVANT l'escalier à
+  chaque étage (la dalle est percée là où on monte et où passe la tête,
+  les marches traversent le trou) — on monte jusqu'au toit sans se
+  cogner au plafond.
+- **Entrée des tours** : porte simple replacée au centre de la façade sud,
+  hors de la cage d'escalier.
+- **Voitures** : centre de masse et inertie symétrisés à la création du
+  véhicule — la voiture ne tire plus à gauche (ni à droite) en ligne
+  droite.
+- **Lampadaires** : 128 lampes actives dans 110 m la nuit (chaque bloc
+  lampe proche allume réellement les alentours, même loin du joueur).
+- **Licence** : nom du développeur (DotRiric) et URL du dépôt corrigés dans
+  NOTICE.md et README.md.
+
 - **Escalier des tours** : trou percé dans la dalle au sommet de chaque
   volée (2 rangées), là où la volée suivante passe — on ne bute plus contre
   le plafond en haut de la volée.

@@ -602,7 +602,7 @@ mod tests {
 
 /// Combien de lampes éclairent vraiment (le reste garde l'émissive, que
 /// le bloom fait rayonner quand même).
-const LIVE_LAMPS: usize = 64;
+const LIVE_LAMPS: usize = 128;
 
 /// Marqueur des pointes de lumière des lampes.
 #[derive(Component)]
