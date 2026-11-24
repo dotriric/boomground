@@ -13,7 +13,7 @@ path = "src/main.rs"
 [dependencies]
 # "wav" : les bruitages sont synthétisés à la volée puis encodés en WAV, ce qui
 # évite d'embarquer des fichiers audio.
-bevy = { version = "0.20", features = ["wav", "vorbis"] }
+bevy = { version = "0.20.1", features = ["wav", "vorbis"] }
 # Accès direct aux types wgpu (seuils de budget VRAM) ; version alignée sur
 # celle de Bevy : ce crate est déjà compilé, aucun surcoût.
 wgpu = { version = "30", default-features = false }
