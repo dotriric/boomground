@@ -103,17 +103,19 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+
       - uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/v')
         with:
           files: dist/*
+
       - name: butler push (itch.io)
         if: env.ITCH_API_KEY != ''
         run: |
           curl -fsSL --retry 3 --retry-delay 2 https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default -o butler.zip
-          unzip -q butler.zip && chmod +x butler-linux-amd64/butler
-          ./butler-linux-amd64/butler login --api-key "$ITCH_API_KEY"
+          unzip -q butler.zip && chmod +x butler
+          ./butler login --api-key "$ITCH_API_KEY"
           V=$(grep '^version' Cargo.toml | cut -d'"' -f2)
-          [ -f dist/BoomGround-Setup.exe ] && ./butler-linux-amd64/butler push dist/BoomGround-Setup.exe dotriric/boomground:windows --userversion "$V" --if-changed || true
-          [ -f dist/BoomGround-x86_64.AppImage ] && ./butler-linux-amd64/butler push dist/BoomGround-x86_64.AppImage dotriric/boomground:linux --userversion "$V" --if-changed || true
-          [ -f dist/BoomGround.apk ] && ./butler-linux-amd64/butler push dist/BoomGround.apk dotriric/boomground:android --userversion "$V" --if-changed || true
+          [ -f dist/BoomGround-Setup.exe ] && ./butler push dist/BoomGround-Setup.exe dotriric/boomground:windows --userversion "$V" --if-changed || true
+          [ -f dist/BoomGround-x86_64.AppImage ] && ./butler push dist/BoomGround-x86_64.AppImage dotriric/boomground:linux --userversion "$V" --if-changed || true
+          [ -f dist/BoomGround.apk ] && ./butler push dist/BoomGround.apk dotriric/boomground:android --userversion "$V" --if-changed || true
