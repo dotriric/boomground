@@ -1,16 +1,7 @@
-# Construit le jeu pour Windows (BoomGround-Setup.exe), Linux
-# (BoomGround-x86_64.AppImage) et Android (BoomGround.apk).
-#
-# - À chaque push / pull request : les trois versions sont compilées et
-#   téléchargeables dans l'onglet « Actions » (artefacts), et poussées sur
-#   itch.io avec butler (projet `dotriric/boomground`, secret ITCH_API_KEY).
-# - Sur un tag `v*` (ex. `git tag v1.8.0 && git push --tags`) : une release
-#   GitHub est créée avec les fichiers en pièces jointes.
 name: release
 
 on:
   push:
-    branches: [main, master]
     tags: ["v*"]
   pull_request:
   workflow_dispatch:
@@ -54,9 +45,6 @@ jobs:
           name: BoomGround-${{ runner.os }}
           path: dist/*
 
-  # APK Android (utilisable aussi sur GrapheneOS, qui est un Android sans
-  # Google Play). Isolé du job bureau : le SDK/NDK Android n'y sert à rien et
-  # allongerait la compilation de tous les autres.
   android:
     name: APK Android
     runs-on: ubuntu-22.04
@@ -74,8 +62,6 @@ jobs:
 
       - name: NDK et SDK
         run: |
-          # SDK préinstallé sur le runner (l'action setup-android échoue :
-          # elle installe le paquet « tools », retiré par Google).
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;26.1.10909125" "platforms;android-34" "build-tools;36.1.0"
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/26.1.10909125" >> "$GITHUB_ENV"
@@ -124,7 +110,7 @@ jobs:
       - name: butler push (itch.io)
         if: env.ITCH_API_KEY != ''
         run: |
-          curl -sL https://broth.itch.ovh/butler/linux-amd64/LATEST/archive/default -o butler.zip
+          curl -fsSL --retry 3 --retry-delay 2 https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default -o butler.zip
           unzip -q butler.zip && chmod +x butler-linux-amd64/butler
           ./butler-linux-amd64/butler login --api-key "$ITCH_API_KEY"
           V=$(grep '^version' Cargo.toml | cut -d'"' -f2)
