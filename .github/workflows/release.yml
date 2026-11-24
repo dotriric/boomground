@@ -1,10 +1,16 @@
 # Construit le jeu pour Windows (BoomGround-Setup.exe), Linux
 # (BoomGround-x86_64.AppImage) et Android (BoomGround.apk).
 #
-# - À chaque push / pull request : les trois versions sont compilées et
-#   téléchargeables dans l'onglet « Actions » (artefacts).
-# - Sur un tag `v*` (ex. `git tag v1.0.0 && git push --tags`) : une release
-#   GitHub est créée avec les fichiers en pièces jointes.
+# Deux circuits de distribution :
+# - push sur master/main → build « early access » (titre marqué, voir
+#   BOOM_CHANNEL ci-dessous), poussé avec butler sur le projet itch.io
+#   PRIVÉ `dotriric/boomground-early-access` (visibilité « Restricted » :
+#   seuls les membres du Discord officiel avec le rôle early access y ont
+#   accès, invités depuis la page itch).
+# - tag `v*` (ex. `git tag v1.8.0 && git push --tags`) : build public,
+#   release GitHub + butler sur le projet itch.io PUBLIC `dotriric/boomground`.
+#
+# Secret requis : ITCH_API_KEY (clé API itch.io, compte owner).
 name: release
 
 on:
@@ -19,6 +25,10 @@ permissions:
 
 jobs:
   build:
+    # Tag v* = build public « release » ; branche = build « early access »
+    # (marqué dans le titre de la fenêtre, canal itch.io privé).
+    env:
+      BOOM_CHANNEL: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || 'early-access' }}
     strategy:
       fail-fast: false
       matrix:
@@ -103,10 +113,16 @@ jobs:
           name: BoomGround-Android
           path: android/BoomGround.apk
 
+  # --- Publication ---
+  # Sur un tag v* : release GitHub (publique) + itch.io public.
+  # Sur une branche : itch.io early access (projet privé, accès restreint
+  # aux membres du Discord officiel ayant le rôle EA).
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [build, android]
     runs-on: ubuntu-22.04
+    env:
+      ITCH_API_KEY: ${{ secrets.ITCH_API_KEY }}
     steps:
       - uses: actions/download-artifact@v4
         with:
@@ -115,3 +131,39 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+      - name: butler (itch.io public)
+        if: env.ITCH_API_KEY != ''
+        run: |
+          curl -sL https://broth.itch.ovh/butler/linux-amd64/LATEST/archive/default -o butler.zip
+          unzip -q butler.zip && chmod +x butler-linux-amd64/butler
+          ./butler-linux-amd64/butler login --api-key "$ITCH_API_KEY"
+          V=$(grep '^version' Cargo.toml | cut -d'"' -f2)
+          ./butler-linux-amd64/butler push dist/BoomGround-Setup.exe dotriric/boomground:windows --userversion "$V"
+          ./butler-linux-amd64/butler push dist/BoomGround-x86_64.AppImage dotriric/boomground:linux --userversion "$V"
+          ./butler-linux-amd64/butler push dist/BoomGround.apk dotriric/boomground:android --userversion "$V"
+
+  early-access:
+    if: github.ref_type == 'branch' && !startsWith(github.ref, 'refs/tags/')
+    needs: [build, android]
+    runs-on: ubuntu-22.04
+    env:
+      ITCH_API_KEY: ${{ secrets.ITCH_API_KEY }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      # Projet itch.io SÉPARÉ et PRIVÉ : visibilité « Restricted », accès
+      # accordé uniquement aux membres du Discord officiel avec le rôle
+      # early access (invités depuis la page itch ou via l'intégration
+      # Discord). Personne d'autre ne peut télécharger ces builds.
+      - name: butler (itch.io early access, privé)
+        if: env.ITCH_API_KEY != ''
+        run: |
+          curl -sL https://broth.itch.ovh/butler/linux-amd64/LATEST/archive/default -o butler.zip
+          unzip -q butler.zip && chmod +x butler-linux-amd64/butler
+          ./butler-linux-amd64/butler login --api-key "$ITCH_API_KEY"
+          V=$(grep '^version' Cargo.toml | cut -d'"' -f2)
+          ./butler-linux-amd64/butler push dist/BoomGround-Setup.exe dotriric/boomground-early-access:windows --userversion "$V-ea"
+          ./butler-linux-amd64/butler push dist/BoomGround-x86_64.AppImage dotriric/boomground-early-access:linux --userversion "$V-ea"
+          ./butler-linux-amd64/butler push dist/BoomGround.apk dotriric/boomground-early-access:android --userversion "$V-ea"

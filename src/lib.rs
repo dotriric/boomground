@@ -115,7 +115,11 @@ pub fn run() {
         .add_message::<weapon::Blast>()
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
-                title: format!("BoomGround {}", install::VERSION),
+                title: format!(
+                    "BoomGround {}{}",
+                    install::VERSION,
+                    if cfg!(boom_early_access) { " (early access)" } else { "" }
+                ),
                 resolution: WindowResolution::new(1440, 810),
                 present_mode: PresentMode::AutoVsync,
                 // Les tests automatiques ne volent pas le clavier.
