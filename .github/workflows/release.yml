@@ -2,16 +2,10 @@
 # (BoomGround-x86_64.AppImage) et Android (BoomGround.apk).
 #
 # - À chaque push / pull request : les trois versions sont compilées et
-#   téléchargeables dans l'onglet « Actions » (artefacts).
-# - Sur une branche (master/main) : build « early access » (BOOM_CHANNEL,
-#   titre de fenêtre marqué) poussé avec butler sur le canal `early-access`
-#   du projet itch.io `dotriric/boomground` — page en visibilité
-#   « Restricted » tant que l'early access est privée : seuls les membres du
-#   Discord officiel avec le rôle EA y sont invités.
-# - Sur un tag `v*` : release GitHub publique + butler sur le canal
-#   `release` (page itch passée en « Public » à ce moment).
-#
-# Secret requis : ITCH_API_KEY (clé API itch.io, compte owner).
+#   téléchargeables dans l'onglet « Actions » (artefacts), et poussées sur
+#   itch.io avec butler (projet `dotriric/boomground`, secret ITCH_API_KEY).
+# - Sur un tag `v*` (ex. `git tag v1.8.0 && git push --tags`) : une release
+#   GitHub est créée avec les fichiers en pièces jointes.
 name: release
 
 on:
@@ -26,10 +20,6 @@ permissions:
 
 jobs:
   build:
-    # Tag v* = build public « release » ; branche = build « early access »
-    # (marqué dans le titre de la fenêtre, canal itch.io privé).
-    env:
-      BOOM_CHANNEL: ${{ startsWith(github.ref, 'refs/tags/v') && 'release' || 'early-access' }}
     strategy:
       fail-fast: false
       matrix:
@@ -115,9 +105,8 @@ jobs:
           path: android/BoomGround.apk
 
   # --- Publication ---
-  # butler pousse sur itch.io : canal `early-access` (builds de branche,
-  # page itch en « Restricted » = Discord uniquement) ou `release` (tags v*,
-  # page publique). Les tags publient aussi la release GitHub.
+  # butler pousse les builds sur itch.io (`dotriric/boomground`) ; sur un
+  # tag v*, la release GitHub est aussi créée.
   publish:
     needs: [build, android]
     runs-on: ubuntu-22.04
@@ -139,12 +128,6 @@ jobs:
           unzip -q butler.zip && chmod +x butler-linux-amd64/butler
           ./butler-linux-amd64/butler login --api-key "$ITCH_API_KEY"
           V=$(grep '^version' Cargo.toml | cut -d'"' -f2)
-          if startsWith(github.ref, 'refs/tags/v'); then
-            CH=release; SV="$V"
-          else
-            CH=early-access; SV="$V-ea"
-          fi
-          echo "butler push -> dotriric/boomground:$CH (version $SV)"
-          [ -f dist/BoomGround-Setup.exe ] && ./butler-linux-amd64/butler push dist/BoomGround-Setup.exe dotriric/boomground:${CH}-windows --userversion "$SV" --if-changed || true
-          [ -f dist/BoomGround-x86_64.AppImage ] && ./butler-linux-amd64/butler push dist/BoomGround-x86_64.AppImage dotriric/boomground:${CH}-linux --userversion "$SV" --if-changed || true
-          [ -f dist/BoomGround.apk ] && ./butler-linux-amd64/butler push dist/BoomGround.apk dotriric/boomground:${CH}-android --userversion "$SV" --if-changed || true
+          [ -f dist/BoomGround-Setup.exe ] && ./butler-linux-amd64/butler push dist/BoomGround-Setup.exe dotriric/boomground:windows --userversion "$V" --if-changed || true
+          [ -f dist/BoomGround-x86_64.AppImage ] && ./butler-linux-amd64/butler push dist/BoomGround-x86_64.AppImage dotriric/boomground:linux --userversion "$V" --if-changed || true
+          [ -f dist/BoomGround.apk ] && ./butler-linux-amd64/butler push dist/BoomGround.apk dotriric/boomground:android --userversion "$V" --if-changed || true

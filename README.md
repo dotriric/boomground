@@ -153,20 +153,6 @@ Au premier lancement, le jeu affiche son écran d'installation :
 
 Désinstaller : « Applications installées » → BoomGround, ou Paramètres → Désinstaller.
 
-## Early access (accès restreint)
-
-Le workflow (`.github/workflows/release.yml`) pousse chaque build sur
-**itch.io avec butler** (`dotriric/boomground`, secret `ITCH_API_KEY`) :
-
-- push sur `master` → canal `early-access-*`, build marqué
-  `BOOM_CHANNEL=early-access` (« BoomGround 1.8.0 (early access) » dans le
-  titre). Tant que l'early access est privée, la page itch.io est en
-  visibilité **« Restricted »** : seuls les membres du
-  [Discord officiel](https://discord.gg/M8CnT2MBS6) ayant le rôle early
-  access y sont invités, personne d'autre ne peut télécharger.
-- tag `v*` → canal `release-*` + release GitHub ; la page itch.io passe en
-  « Public » à ce moment.
-
 ## Compiler
 
 ```bash
